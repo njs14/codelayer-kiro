@@ -225,14 +225,17 @@ func (ks *KiroSession) consumeUpdates(sess *kirocli.Session) {
 				},
 			}
 		case kirocli.UpdateToolCallUpdate:
-			event.Type = "assistant"
+			// Map tool_call_update to a user message with tool_result content,
+			// matching the Claude event structure that processStreamEvent expects.
+			event.Type = "user"
 			event.Message = &claudecode.Message{
 				Type: "message",
-				Role: "assistant",
+				Role: "user",
 				Content: []claudecode.Content{
 					{
 						Type:      "tool_result",
 						ToolUseID: update.ToolCallID,
+						Content:   claudecode.ContentField{Value: update.Content},
 					},
 				},
 			}

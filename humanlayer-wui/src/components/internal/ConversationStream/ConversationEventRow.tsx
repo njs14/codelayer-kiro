@@ -50,6 +50,7 @@ import {
   ApprovalWrapper,
   MCPToolCallContent,
   UnknownToolCallContent,
+  SystemErrorContent,
 } from './EventContent'
 import { BashToolInput, parseToolInput, ToolName } from './EventContent/types'
 import type {
@@ -121,8 +122,14 @@ const getIcon = (
   isCompleted: boolean | undefined,
   toolName?: string,
   isThinking?: boolean,
+  content?: string,
 ) => {
   const iconClasses = `w-4 h-4 align-middle relative top-[1px] ${type === ConversationEventType.ToolCall && !isCompleted ? 'pulse-warning' : ''}`
+
+  // System error events get the AlertCircle icon
+  if (type === ConversationEventType.System && content?.startsWith('Error: ')) {
+    return <AlertCircle className={`${iconClasses} text-destructive`} />
+  }
 
   if (type === ConversationEventType.ToolCall) {
     if (toolName?.startsWith('mcp__')) {
@@ -377,6 +384,7 @@ function ConversationEventRowInner({
     event.isCompleted,
     event.toolName,
     isThinking,
+    event.content,
   )
 
   let messageContent = null
@@ -644,6 +652,12 @@ function ConversationEventRowInner({
         />
       )
     }
+  } else if (
+    event.eventType === ConversationEventType.System &&
+    event.content?.startsWith('Error: ')
+  ) {
+    // System error events (e.g., Kiro ACP errors, process failures)
+    messageContent = <SystemErrorContent content={event.content} />
   } else if (event.role === ConversationRole.User) {
     messageContent = <UserMessageContent eventContent={event.content || ''} />
   } else if (event.role === ConversationRole.Assistant) {
