@@ -9,6 +9,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Provider selects which coding agent backend to use.
+const (
+	ProviderClaude = "claude"
+	ProviderKiro   = "kiro"
+)
+
 // Build-time configurable defaults
 var (
 	// These can be overridden at build time using -ldflags
@@ -17,6 +23,8 @@ var (
 	DefaultHTTPPort     = "7777"
 	DefaultCLICommand   = "hlyr" // CLI command to execute
 	DefaultClaudePath   = ""     // Empty means auto-detect
+	DefaultKiroPath     = ""     // Empty means auto-detect
+	DefaultProvider     = ProviderClaude
 )
 
 // Config represents the daemon configuration
@@ -43,6 +51,11 @@ type Config struct {
 
 	// Claude configuration
 	ClaudePath string `mapstructure:"claude_path"`
+
+	// Kiro configuration
+	Provider       string `mapstructure:"provider"`         // "claude" (default) or "kiro"
+	KiroPath       string `mapstructure:"kiro_path"`        // Path to kiro-cli binary
+	KiroWorkingDir string `mapstructure:"kiro_working_dir"` // Default working directory for Kiro sessions
 }
 
 // Load loads configuration with priority: flags > env vars > config file > defaults
@@ -72,6 +85,9 @@ func Load() (*Config, error) {
 	_ = v.BindEnv("http_port", "HUMANLAYER_DAEMON_HTTP_PORT")
 	_ = v.BindEnv("http_host", "HUMANLAYER_DAEMON_HTTP_HOST")
 	_ = v.BindEnv("claude_path", "HUMANLAYER_CLAUDE_PATH")
+	_ = v.BindEnv("provider", "CODELAYER_PROVIDER")
+	_ = v.BindEnv("kiro_path", "KIRO_CLI_PATH")
+	_ = v.BindEnv("kiro_working_dir", "KIRO_WORKING_DIR")
 
 	// Set defaults
 	setDefaults(v)
@@ -93,6 +109,8 @@ func Load() (*Config, error) {
 	config.SocketPath = expandHome(config.SocketPath)
 	config.DatabasePath = expandHome(config.DatabasePath)
 	config.ClaudePath = expandHome(config.ClaudePath)
+	config.KiroPath = expandHome(config.KiroPath)
+	config.KiroWorkingDir = expandHome(config.KiroWorkingDir)
 
 	return &config, nil
 }
@@ -112,6 +130,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http_port", port)
 	v.SetDefault("http_host", "127.0.0.1")
 	v.SetDefault("claude_path", DefaultClaudePath)
+	v.SetDefault("provider", DefaultProvider)
+	v.SetDefault("kiro_path", DefaultKiroPath)
+	v.SetDefault("kiro_working_dir", "")
 }
 
 // getDefaultConfigDir returns the default configuration directory
@@ -148,7 +169,15 @@ func (c *Config) Validate() error {
 	if c.SocketPath == "" {
 		return fmt.Errorf("socket path cannot be empty")
 	}
+	if c.Provider != "" && c.Provider != ProviderClaude && c.Provider != ProviderKiro {
+		return fmt.Errorf("invalid provider %q: must be %q or %q", c.Provider, ProviderClaude, ProviderKiro)
+	}
 	return nil
+}
+
+// IsKiroProvider returns true when the daemon is configured to use Kiro as the backend.
+func (c *Config) IsKiroProvider() bool {
+	return c.Provider == ProviderKiro
 }
 
 // Save saves the configuration to the config file
@@ -178,6 +207,9 @@ func Save(cfg *Config) error {
 	v.Set("http_port", cfg.HTTPPort)
 	v.Set("http_host", cfg.HTTPHost)
 	v.Set("claude_path", cfg.ClaudePath)
+	v.Set("provider", cfg.Provider)
+	v.Set("kiro_path", cfg.KiroPath)
+	v.Set("kiro_working_dir", cfg.KiroWorkingDir)
 
 	// Set config file path explicitly
 	configFile := filepath.Join(configDir, "humanlayer.json")

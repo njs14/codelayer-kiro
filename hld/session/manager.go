@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,6 +33,13 @@ type Manager struct {
 	pendingQueries     sync.Map // map[sessionID]query - stores queries waiting for Claude session ID
 	socketPath         string   // Daemon socket path for MCP servers
 	httpPort           int      // HTTP server port for proxy endpoint
+
+	// Kiro backend support
+	provider       string     // "claude" or "kiro"
+	kiroClient     *ACPClient // Shared ACP client for Kiro sessions (nil if not configured)
+	kiroClientErr  error      // Store Kiro initialization error
+	kiroPath       string     // Configured kiro-cli path
+	kiroWorkingDir string     // Default working directory for Kiro sessions
 }
 
 // Compile-time check that Manager implements SessionManager
@@ -70,20 +78,40 @@ func NewManagerWithConfig(eventBus bus.EventBus, store store.ConversationStore, 
 
 	logger := slog.With("component", "session_manager")
 
+	provider := cfg.Provider
+	if provider == "" {
+		provider = hldconfig.ProviderClaude
+	}
+
 	m := &Manager{
 		activeProcesses: make(map[string]ClaudeSession),
 		eventBus:        eventBus,
 		store:           store,
 		socketPath:      socketPath,
 		claudePath:      cfg.ClaudePath, // Use configured Claude path
+		provider:        provider,
+		kiroPath:        cfg.KiroPath,
+		kiroWorkingDir:  cfg.KiroWorkingDir,
 	}
 
-	// Try to initialize Claude client but don't fail if unavailable
-	m.initializeClaudeClient()
-	if m.claudeClientErr != nil {
-		logger.Warn("Claude binary not available at startup",
-			"error", m.claudeClientErr,
-			"configured_path", cfg.ClaudePath)
+	if cfg.IsKiroProvider() {
+		// Initialize Kiro client
+		m.initializeKiroClient()
+		if m.kiroClientErr != nil {
+			logger.Warn("Kiro CLI not available at startup",
+				"error", m.kiroClientErr,
+				"configured_path", cfg.KiroPath)
+		} else {
+			logger.Info("Kiro provider initialized", "path", cfg.KiroPath)
+		}
+	} else {
+		// Try to initialize Claude client but don't fail if unavailable
+		m.initializeClaudeClient()
+		if m.claudeClientErr != nil {
+			logger.Warn("Claude binary not available at startup",
+				"error", m.claudeClientErr,
+				"configured_path", cfg.ClaudePath)
+		}
 	}
 
 	return m, nil
@@ -177,9 +205,59 @@ func (m *Manager) getClaudeClient() (*claudecode.Client, error) {
 	return m.client, nil
 }
 
+// initializeKiroClient discovers and validates the kiro-cli binary.
+func (m *Manager) initializeKiroClient() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.kiroClient != nil && m.kiroClientErr == nil {
+		return // already initialized
+	}
+
+	kiroPath := m.kiroPath
+	if kiroPath == "" {
+		// Try auto-detect from PATH
+		detected, err := exec.LookPath("kiro-cli")
+		if err != nil {
+			m.kiroClientErr = fmt.Errorf("kiro-cli not found in PATH and no KIRO_CLI_PATH configured")
+			return
+		}
+		kiroPath = detected
+	} else {
+		if _, err := os.Stat(kiroPath); err != nil {
+			m.kiroClientErr = fmt.Errorf("configured kiro-cli path does not exist: %s", kiroPath)
+			return
+		}
+	}
+
+	m.kiroClient = NewACPClient(kiroPath)
+	m.kiroClientErr = nil
+	slog.Info("Kiro ACP client created", "path", kiroPath)
+}
+
+// getKiroClient ensures the Kiro ACP client is initialized and returns it.
+func (m *Manager) getKiroClient() (*ACPClient, error) {
+	m.initializeKiroClient()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.kiroClientErr != nil {
+		return nil, fmt.Errorf("kiro not available: %w", m.kiroClientErr)
+	}
+	return m.kiroClient, nil
+}
+
+// isKiroProvider returns true if the manager is configured to use Kiro.
+func (m *Manager) isKiroProvider() bool {
+	return m.provider == hldconfig.ProviderKiro
+}
+
 // LaunchSession starts a new Claude Code session
 // TODO(0): Consider whether we need to support non-draft session creation directly in daemon post-implementation
 func (m *Manager) LaunchSession(ctx context.Context, config LaunchSessionConfig, isDraft bool) (*Session, error) {
+	if m.isKiroProvider() {
+		return m.launchKiroSession(ctx, config, isDraft)
+	}
+
 	// Get Claude client (will attempt initialization if needed)
 	client, err := m.getClaudeClient()
 	if err != nil {
@@ -2476,4 +2554,179 @@ func (m *Manager) UpdateSessionSettings(ctx context.Context, sessionID string, u
 	}
 
 	return nil
+}
+
+// launchKiroSession starts a new session using the Kiro ACP backend.
+// It follows the same lifecycle pattern as the Claude path: create DB record,
+// launch the session, monitor events, and update status.
+func (m *Manager) launchKiroSession(ctx context.Context, config LaunchSessionConfig, isDraft bool) (*Session, error) {
+	acpClient, err := m.getKiroClient()
+	if err != nil {
+		return nil, fmt.Errorf("cannot launch Kiro session: %w", err)
+	}
+
+	sessionID := uuid.New().String()
+	runID := uuid.New().String()
+
+	claudeConfig := config.SessionConfig
+
+	// Determine working directory
+	workingDir := claudeConfig.WorkingDir
+	if workingDir == "" {
+		workingDir = m.kiroWorkingDir
+	}
+	if workingDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			workingDir = cwd
+		}
+	}
+	claudeConfig.WorkingDir = workingDir
+
+	// Handle working directory validation (same as Claude path, but skip for drafts)
+	if workingDir != "" && !isDraft {
+		if strings.HasPrefix(workingDir, "~") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get home directory: %w", err)
+			}
+			workingDir = filepath.Join(home, strings.TrimPrefix(workingDir, "~"))
+			claudeConfig.WorkingDir = workingDir
+		}
+
+		info, err := os.Stat(workingDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if config.CreateDirectoryIfNotExists {
+					if err := os.MkdirAll(workingDir, 0755); err != nil {
+						return nil, fmt.Errorf("failed to create working directory %s: %w", workingDir, err)
+					}
+				} else {
+					return nil, &DirectoryNotFoundError{
+						Path:    workingDir,
+						Message: fmt.Sprintf("working directory does not exist: %s", workingDir),
+					}
+				}
+			} else {
+				return nil, fmt.Errorf("error accessing working directory %s: %w", workingDir, err)
+			}
+		} else if !info.IsDir() {
+			return nil, fmt.Errorf("working directory path exists but is not a directory: %s", workingDir)
+		}
+	}
+
+	// Create session record in database
+	startTime := time.Now()
+	dbSession := store.NewSessionFromConfig(sessionID, runID, claudeConfig)
+	dbSession.Summary = CalculateSummary(claudeConfig.Query)
+
+	if isDraft {
+		dbSession.Status = store.SessionStatusDraft
+	} else {
+		dbSession.Status = store.SessionStatusStarting
+	}
+
+	if config.Title != "" {
+		dbSession.Title = config.Title
+	}
+	dbSession.AutoAcceptEdits = config.AutoAcceptEdits
+	if config.DangerouslySkipPermissions {
+		dbSession.DangerouslySkipPermissions = true
+		if config.DangerouslySkipPermissionsTimeout != nil && *config.DangerouslySkipPermissionsTimeout > 0 {
+			expiresAt := time.Now().Add(time.Duration(*config.DangerouslySkipPermissionsTimeout) * time.Millisecond)
+			dbSession.DangerouslySkipPermissionsExpiresAt = &expiresAt
+		}
+	}
+
+	if err := m.store.CreateSession(ctx, dbSession); err != nil {
+		return nil, fmt.Errorf("failed to store session in database: %w", err)
+	}
+
+	// Return early for draft sessions
+	if isDraft {
+		slog.Info("created draft Kiro session",
+			"session_id", sessionID,
+			"run_id", runID,
+			"working_dir", workingDir)
+		return &Session{
+			ID:        sessionID,
+			RunID:     runID,
+			Status:    StatusDraft,
+			StartTime: startTime,
+			Config:    claudeConfig,
+		}, nil
+	}
+
+	// Ensure the ACP subprocess is running
+	if !acpClient.IsRunning() {
+		if err := acpClient.Start(ctx, workingDir); err != nil {
+			m.updateSessionStatus(ctx, sessionID, StatusFailed, err.Error())
+			return nil, fmt.Errorf("failed to start Kiro ACP subprocess: %w", err)
+		}
+	}
+
+	// Create the Kiro session
+	kiroSession, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:  sessionID,
+		Query:      claudeConfig.Query,
+		WorkingDir: workingDir,
+		ACPClient:  acpClient,
+		PermissionHandler: func(sid, toolCallID, title string, options []string) string {
+			// Default: allow_once. The approval manager integration can be
+			// wired here in a follow-up.
+			return "allow_once"
+		},
+	})
+	if err != nil {
+		m.updateSessionStatus(ctx, sessionID, StatusFailed, err.Error())
+		return nil, fmt.Errorf("failed to create Kiro session: %w", err)
+	}
+
+	// Store active process
+	m.mu.Lock()
+	m.activeProcesses[sessionID] = kiroSession
+	m.mu.Unlock()
+
+	// Update status to running
+	statusRunning := string(StatusRunning)
+	now := time.Now()
+	update := store.SessionUpdate{
+		Status:         &statusRunning,
+		LastActivityAt: &now,
+	}
+	// Store the Kiro session ID as the Claude session ID field for compatibility
+	kiroSID := kiroSession.kiroSessionID
+	update.ClaudeSessionID = &kiroSID
+	if err := m.store.UpdateSession(ctx, sessionID, update); err != nil {
+		slog.Error("failed to update session status to running", "error", err)
+	}
+
+	// Publish status change event
+	if m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type: bus.EventSessionStatusChanged,
+			Data: map[string]interface{}{
+				"session_id": sessionID,
+				"run_id":     runID,
+				"old_status": string(StatusStarting),
+				"new_status": string(StatusRunning),
+			},
+		})
+	}
+
+	// Monitor session lifecycle in background (reuse existing monitorSession)
+	go m.monitorSession(ctx, sessionID, runID, kiroSession, startTime, claudeConfig)
+
+	slog.Info("launched Kiro session",
+		"session_id", sessionID,
+		"run_id", runID,
+		"kiro_session_id", kiroSession.kiroSessionID,
+		"working_dir", workingDir)
+
+	return &Session{
+		ID:        sessionID,
+		RunID:     runID,
+		Status:    StatusRunning,
+		StartTime: startTime,
+		Config:    claudeConfig,
+	}, nil
 }
