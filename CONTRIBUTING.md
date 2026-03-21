@@ -1,8 +1,10 @@
-# Contributing to HumanLayer
+# Contributing to codelayer-kiro
 
-If you're looking to contribute, please:
+This is a fork of [humanlayer/humanlayer](https://github.com/humanlayer/humanlayer) with Kiro CLI backend support. For contributions to the upstream project, see the original repository.
 
-- fork the repository.
+If you're looking to contribute to this fork, please:
+
+- fork this repository.
 - create a new branch for your feature.
 - add your feature or improvement.
 - send a pull request.
