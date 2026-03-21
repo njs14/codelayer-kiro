@@ -38,11 +38,7 @@ mcpCommand
 program
   .command('launch <query>')
   .description('Launch a new coding session via the daemon')
-  .option(
-    '-p, --provider <provider>',
-    'Provider to use (claude or kiro)',
-    'claude',
-  )
+  .option('-p, --provider <provider>', 'Provider to use (claude or kiro)', 'claude')
   .option('-m, --model <model>', 'Model to use (depends on provider)', 'sonnet')
   .option('-t, --title <title>', 'Optional session title')
   .option('-w, --working-dir <path>', 'Working directory for the session')
