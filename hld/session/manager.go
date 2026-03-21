@@ -17,6 +17,7 @@ import (
 	"github.com/humanlayer/humanlayer/hld/bus"
 	hldconfig "github.com/humanlayer/humanlayer/hld/config"
 	"github.com/humanlayer/humanlayer/hld/store"
+	kirocli "github.com/humanlayer/humanlayer/kirocli-go"
 )
 
 // Manager handles the lifecycle of Claude Code sessions
@@ -36,7 +37,7 @@ type Manager struct {
 
 	// Kiro backend support
 	provider       string     // "claude" or "kiro"
-	kiroClient     *ACPClient // Shared ACP client for Kiro sessions (nil if not configured)
+	kiroClient     *kirocli.Client // Shared ACP client for Kiro sessions (nil if not configured)
 	kiroClientErr  error      // Store Kiro initialization error
 	kiroPath       string     // Configured kiro-cli path
 	kiroWorkingDir string     // Default working directory for Kiro sessions
@@ -230,13 +231,13 @@ func (m *Manager) initializeKiroClient() {
 		}
 	}
 
-	m.kiroClient = NewACPClient(kiroPath)
+	m.kiroClient = kirocli.NewClientWithPath(kiroPath)
 	m.kiroClientErr = nil
 	slog.Info("Kiro ACP client created", "path", kiroPath)
 }
 
 // getKiroClient ensures the Kiro ACP client is initialized and returns it.
-func (m *Manager) getKiroClient() (*ACPClient, error) {
+func (m *Manager) getKiroClient() (*kirocli.Client, error) {
 	m.initializeKiroClient()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -2658,7 +2659,7 @@ func (m *Manager) launchKiroSession(ctx context.Context, config LaunchSessionCon
 
 	// Ensure the ACP subprocess is running
 	if !acpClient.IsRunning() {
-		if err := acpClient.Start(ctx, workingDir); err != nil {
+		if err := acpClient.Start(workingDir); err != nil {
 			m.updateSessionStatus(ctx, sessionID, StatusFailed, err.Error())
 			return nil, fmt.Errorf("failed to start Kiro ACP subprocess: %w", err)
 		}
