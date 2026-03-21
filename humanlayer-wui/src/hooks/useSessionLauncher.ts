@@ -69,7 +69,9 @@ const getSavedProvider = (): 'anthropic' | 'openrouter' | 'baseten' | 'kiro' => 
 }
 
 // Helper function to get saved model based on provider
-const getSavedModel = (provider: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'): string | undefined => {
+const getSavedModel = (
+  provider: 'anthropic' | 'openrouter' | 'baseten' | 'kiro',
+): string | undefined => {
   if (provider === 'anthropic') {
     return localStorage.getItem(MODEL_KEY) || undefined
   } else if (provider === 'kiro') {

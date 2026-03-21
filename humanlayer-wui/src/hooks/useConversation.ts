@@ -183,8 +183,7 @@ export function useFormattedConversation(
       let type: FormattedMessage['type'] = 'message'
 
       // Normalize Kiro event types as fallback (daemon should already normalize)
-      const effectiveEventType =
-        event.eventType || normalizeKiroEventType(event.eventType as string)
+      const effectiveEventType = event.eventType || normalizeKiroEventType(event.eventType as string)
 
       if (effectiveEventType === 'tool_call') {
         type = 'tool_call'

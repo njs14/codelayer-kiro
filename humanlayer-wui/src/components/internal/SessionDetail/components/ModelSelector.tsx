@@ -11,7 +11,15 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { HOTKEY_SCOPES } from '@/hooks/hotkeys/scopes'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { usePostHogTracking } from '@/hooks/usePostHogTracking'
@@ -94,9 +102,11 @@ function ModelSelectorContent({
   const initial = getProviderAndModel()
   const [provider, setProvider] = useState<ProviderType>(initial.provider)
   const [model, setModel] = useState(
-    initial.provider === 'anthropic' ? initial.model || 'default' :
-    initial.provider === 'kiro' ? initial.model || 'auto' :
-    'default',
+    initial.provider === 'anthropic'
+      ? initial.model || 'default'
+      : initial.provider === 'kiro'
+        ? initial.model || 'auto'
+        : 'default',
   )
   const [customModel, setCustomModel] = useState(
     initial.provider === 'openrouter' || initial.provider === 'baseten' ? initial.model : '',
@@ -299,9 +309,10 @@ function ModelSelectorContent({
       }
 
       // Track model selection event
-      const newModel = provider === 'anthropic' || provider === 'kiro'
-        ? modelValue || (provider === 'kiro' ? 'auto' : 'default')
-        : customModel
+      const newModel =
+        provider === 'anthropic' || provider === 'kiro'
+          ? modelValue || (provider === 'kiro' ? 'auto' : 'default')
+          : customModel
       trackEvent(POSTHOG_EVENTS.MODEL_SELECTED, {
         model: newModel,
         provider: provider,
@@ -375,9 +386,7 @@ function ModelSelectorContent({
           <Label htmlFor="provider">Provider</Label>
           <Select
             value={provider}
-            onValueChange={value =>
-              handleProviderChange(value as ProviderType)
-            }
+            onValueChange={value => handleProviderChange(value as ProviderType)}
             disabled={isUpdating}
           >
             <SelectTrigger id="provider" className="w-full">
