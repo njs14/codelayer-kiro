@@ -69,19 +69,13 @@ describe('error event detection logic', () => {
 
   it('should identify Kiro ACP timeout errors', () => {
     expect(
-      isSystemErrorEvent(
-        'system',
-        'Error: timeout waiting for response to session/prompt (id=1)',
-      ),
+      isSystemErrorEvent('system', 'Error: timeout waiting for response to session/prompt (id=1)'),
     ).toBe(true)
   })
 
   it('should identify Kiro connection failure errors', () => {
     expect(
-      isSystemErrorEvent(
-        'system',
-        'Error: failed to create/resume Kiro session: connection refused',
-      ),
+      isSystemErrorEvent('system', 'Error: failed to create/resume Kiro session: connection refused'),
     ).toBe(true)
   })
 

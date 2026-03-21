@@ -13,17 +13,13 @@ describe('SystemErrorContent', () => {
   })
 
   it('should render content as-is when no "Error: " prefix', () => {
-    const { container } = render(
-      <SystemErrorContent content="Connection lost to Kiro process" />,
-    )
+    const { container } = render(<SystemErrorContent content="Connection lost to Kiro process" />)
     expect(container.textContent).toContain('Connection lost to Kiro process')
     expect(container.querySelector('.text-destructive')).not.toBeNull()
   })
 
   it('should render AlertCircle icon', () => {
-    const { container } = render(
-      <SystemErrorContent content="Error: permission denied" />,
-    )
+    const { container } = render(<SystemErrorContent content="Error: permission denied" />)
     // lucide-react renders SVG elements
     const svg = container.querySelector('svg')
     expect(svg).not.toBeNull()

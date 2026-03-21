@@ -376,7 +376,7 @@ function ConversationEventRowInner({
 }: ConversationEventRowProps) {
   const isThinking = Boolean(
     event.eventType === ConversationEventType.Thinking ||
-      (event.role === ConversationRole.Assistant && event.content?.startsWith('<thinking>')),
+    (event.role === ConversationRole.Assistant && event.content?.startsWith('<thinking>')),
   )
   const IconComponent = getIcon(
     event.eventType,
@@ -652,10 +652,7 @@ function ConversationEventRowInner({
         />
       )
     }
-  } else if (
-    event.eventType === ConversationEventType.System &&
-    event.content?.startsWith('Error: ')
-  ) {
+  } else if (event.eventType === ConversationEventType.System && event.content?.startsWith('Error: ')) {
     // System error events (e.g., Kiro ACP errors, process failures)
     messageContent = <SystemErrorContent content={event.content} />
   } else if (event.role === ConversationRole.User) {
