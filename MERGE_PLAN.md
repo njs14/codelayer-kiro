@@ -1,5 +1,7 @@
 # Kiro Integration Merge Plan
 
+> **Status**: All merges complete. This document is retained as a historical record of the integration.
+
 This document describes the recommended merge order and validation steps for integrating Kiro CLI support into the main branch. Three feature branches were developed in parallel:
 
 | PR | Branch | Scope |
