@@ -216,21 +216,25 @@ func TestKiroSession_EventMapping(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 
-	// Test tool_call_update → assistant event with tool_result content
+	// Test tool_call_update → user event with tool_result content
+	// (mapped as user/tool_result to match Claude's event structure for processStreamEvent)
 	sess.Updates <- kirocli.StreamUpdate{
 		SessionID:  sid,
 		Kind:       kirocli.UpdateToolCallUpdate,
 		ToolCallID: "tc-1",
 		Status:     "completed",
+		Content:    "File created successfully",
 	}
 
 	select {
 	case event := <-ks.events:
-		assert.Equal(t, "assistant", event.Type)
+		assert.Equal(t, "user", event.Type)
 		require.NotNil(t, event.Message)
+		assert.Equal(t, "user", event.Message.Role)
 		require.Len(t, event.Message.Content, 1)
 		assert.Equal(t, "tool_result", event.Message.Content[0].Type)
 		assert.Equal(t, "tc-1", event.Message.Content[0].ToolUseID)
+		assert.Equal(t, "File created successfully", event.Message.Content[0].Content.Value)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for event")
 	}
@@ -454,6 +458,91 @@ func TestKiroSession_PromptError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "timeout")
+}
+
+func TestKiroSession_ErrorResultEmitsIsError(t *testing.T) {
+	mock := newMockKiroACPClient()
+	mock.promptErr = fmt.Errorf("connection refused")
+	mock.promptResult = nil
+
+	ctx := context.Background()
+	ks, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:     "test-error-result",
+		Query:         "will fail",
+		WorkingDir:    "/tmp",
+		ACPClient:     mock,
+		PromptTimeout: 500 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	// Collect all events
+	var events []claudecode.StreamEvent
+	for event := range ks.events {
+		events = append(events, event)
+	}
+
+	// Should have system init + error result
+	require.GreaterOrEqual(t, len(events), 2)
+
+	// First event should be system init
+	assert.Equal(t, "system", events[0].Type)
+	assert.Equal(t, "init", events[0].Subtype)
+
+	// Last event should be error result with IsError=true
+	lastEvent := events[len(events)-1]
+	assert.Equal(t, "result", lastEvent.Type)
+	assert.True(t, lastEvent.IsError)
+	assert.Equal(t, "connection refused", lastEvent.Error)
+
+	// Wait should return error
+	result, waitErr := ks.Wait()
+	assert.Error(t, waitErr)
+	assert.Nil(t, result)
+	assert.Contains(t, waitErr.Error(), "connection refused")
+}
+
+func TestKiroSession_ToolCallUpdateWithContent(t *testing.T) {
+	mock := newMockKiroACPClient()
+
+	// Create session to set up channels
+	sid, err := mock.SessionNew("/tmp")
+	require.NoError(t, err)
+	sess := mock.getSession(sid)
+
+	ks := &KiroSession{
+		id:            "test-session",
+		kiroSessionID: sid,
+		client:        mock,
+		events:        make(chan claudecode.StreamEvent, 100),
+		done:          make(chan struct{}),
+		promptDone:    make(chan struct{}),
+	}
+
+	// Start the update consumer
+	ks.consumerWg.Add(1)
+	go ks.consumeUpdates(sess)
+
+	// Send a tool_call_update with error content
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID:  sid,
+		Kind:       kirocli.UpdateToolCallUpdate,
+		ToolCallID: "tc-err-1",
+		Status:     "failed",
+		Content:    "Error: permission denied",
+	}
+
+	select {
+	case event := <-ks.events:
+		assert.Equal(t, "user", event.Type)
+		require.NotNil(t, event.Message)
+		assert.Equal(t, "user", event.Message.Role)
+		require.Len(t, event.Message.Content, 1)
+		assert.Equal(t, "tool_result", event.Message.Content[0].Type)
+		assert.Equal(t, "tc-err-1", event.Message.Content[0].ToolUseID)
+		assert.Equal(t, "Error: permission denied", event.Message.Content[0].Content.Value)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for event")
+	}
 }
 
 func TestKiroSession_UnhandledUpdateType(t *testing.T) {

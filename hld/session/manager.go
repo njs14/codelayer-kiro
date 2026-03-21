@@ -1394,6 +1394,41 @@ func (m *Manager) processStreamEvent(ctx context.Context, sessionID string, clau
 			update.ErrorMessage = &event.Error
 		}
 
+		// For error results, also emit a system ConversationEvent so the error
+		// message appears in the conversation stream (not just in session status).
+		// This is especially important for Kiro sessions where the result event
+		// with IsError=true is the primary error delivery mechanism.
+		if event.IsError && event.Error != "" {
+			errorContent := fmt.Sprintf("Error: %s", event.Error)
+			convEvent := &store.ConversationEvent{
+				SessionID:       sessionID,
+				ClaudeSessionID: claudeSessionID,
+				EventType:       store.EventTypeSystem,
+				Role:            "system",
+				Content:         errorContent,
+			}
+			if err := m.store.AddConversationEvent(ctx, convEvent); err != nil {
+				slog.Error("failed to store error conversation event",
+					"session_id", sessionID,
+					"error", err)
+				// Continue to update session status even if event storage fails
+			}
+
+			// Publish conversation updated event for error
+			if m.eventBus != nil {
+				m.eventBus.Publish(bus.Event{
+					Type: bus.EventConversationUpdated,
+					Data: map[string]interface{}{
+						"session_id":        sessionID,
+						"claude_session_id": claudeSessionID,
+						"event_type":        "system",
+						"content":           errorContent,
+						"content_type":      "error",
+					},
+				})
+			}
+		}
+
 		return m.store.UpdateSession(ctx, sessionID, update)
 	}
 

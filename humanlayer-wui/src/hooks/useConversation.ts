@@ -139,7 +139,7 @@ export function useConversation(
 // Formatted conversation for display
 export interface FormattedMessage {
   id: number
-  type: 'message' | 'tool_call' | 'tool_result' | 'approval'
+  type: 'message' | 'tool_call' | 'tool_result' | 'approval' | 'error'
   role?: string
   content: string
   timestamp: Date
@@ -185,7 +185,10 @@ export function useFormattedConversation(
       // Normalize Kiro event types as fallback (daemon should already normalize)
       const effectiveEventType = event.eventType || normalizeKiroEventType(event.eventType as string)
 
-      if (effectiveEventType === 'tool_call') {
+      // Handle system error events (e.g., Kiro ACP errors, process failures)
+      if (effectiveEventType === 'system' && content.startsWith('Error: ')) {
+        type = 'error'
+      } else if (effectiveEventType === 'tool_call') {
         type = 'tool_call'
         content = `Calling ${event.toolName || 'tool'}`
         if (event.toolInputJson) {

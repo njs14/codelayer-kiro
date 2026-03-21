@@ -47,3 +47,6 @@ export { MCPToolCallContent } from './MCPToolCallContent'
 
 // Phase 8 Fallback for Unmigrated Tools
 export { UnknownToolCallContent } from './UnknownToolCallContent'
+
+// System Events
+export { SystemErrorContent } from './SystemErrorContent'
