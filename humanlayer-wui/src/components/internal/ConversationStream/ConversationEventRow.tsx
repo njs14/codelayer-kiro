@@ -376,7 +376,7 @@ function ConversationEventRowInner({
 }: ConversationEventRowProps) {
   const isThinking = Boolean(
     event.eventType === ConversationEventType.Thinking ||
-    (event.role === ConversationRole.Assistant && event.content?.startsWith('<thinking>')),
+      (event.role === ConversationRole.Assistant && event.content?.startsWith('<thinking>')),
   )
   const IconComponent = getIcon(
     event.eventType,
