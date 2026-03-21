@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -128,32 +127,6 @@ func (m *mockACPProcess) sendNotification(method string, params interface{}) {
 	_, _ = m.stdoutW.Write(data)
 }
 
-// sendPermissionRequest sends a permission request from the mock subprocess.
-func (m *mockACPProcess) sendPermissionRequest(id int, sessionID, toolCallID, title string) {
-	params := map[string]interface{}{
-		"sessionId": sessionID,
-		"toolCall": map[string]interface{}{
-			"toolCallId": toolCallID,
-			"title":      title,
-		},
-		"options": []map[string]interface{}{
-			{"optionId": "allow_once", "name": "Yes"},
-			{"optionId": "allow_always", "name": "Always allow"},
-			{"optionId": "deny", "name": "Deny"},
-		},
-	}
-	paramsJSON, _ := json.Marshal(params)
-	msg := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  "session/request_permission",
-		"params":  json.RawMessage(paramsJSON),
-	}
-	data, _ := json.Marshal(msg)
-	data = append(data, '\n')
-	_, _ = m.stdoutW.Write(data)
-}
-
 func (m *mockACPProcess) close() {
 	_ = m.stdinW.Close()
 	_ = m.stdoutW.Close()
@@ -184,7 +157,7 @@ func TestACPClient_Handshake(t *testing.T) {
 	defer mock.close()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	// Perform handshake
 	_, err := client.sendRequest("initialize", acpInitializeParams{
@@ -209,7 +182,7 @@ func TestACPClient_SessionNew(t *testing.T) {
 	defer mock.close()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	sessionID, err := client.SessionNew("/tmp/test-project")
 	require.NoError(t, err)
@@ -221,7 +194,7 @@ func TestACPClient_SessionPrompt(t *testing.T) {
 	defer mock.close()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	result, err := client.SessionPrompt("kiro-session-123", "Hello world", 10*time.Second)
 	require.NoError(t, err)
@@ -237,7 +210,7 @@ func TestACPClient_SessionUpdateCallback(t *testing.T) {
 	defer mock.close()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	var received acpSessionUpdateParams
 	receivedCh := make(chan struct{}, 1)
@@ -269,7 +242,7 @@ func TestACPClient_MetadataCallback(t *testing.T) {
 	defer mock.close()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	var received acpMetadataParams
 	receivedCh := make(chan struct{}, 1)
@@ -394,7 +367,7 @@ func TestKiroSession_EventMapping(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestKiroSession_PermissionForwarding(t *testing.T) {
@@ -441,7 +414,7 @@ func TestKiroSession_PermissionForwarding(t *testing.T) {
 	assert.True(t, permHandlerCalled)
 	assert.Equal(t, "Creating app.py", permTitle)
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestKiroSession_MetadataTracking(t *testing.T) {
@@ -485,7 +458,7 @@ func TestKiroSession_WaitReturnsResult(t *testing.T) {
 	assert.Equal(t, "result", result.Type)
 	assert.Equal(t, "Task completed successfully.", result.Result)
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestKiroSession_GetIDReturnsKiroSessionID(t *testing.T) {
@@ -512,7 +485,7 @@ func TestKiroSession_GetIDReturnsKiroSessionID(t *testing.T) {
 	}()
 	_, _ = ks.Wait()
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestKiroSession_EventsChannelClosed(t *testing.T) {
@@ -541,7 +514,7 @@ func TestKiroSession_EventsChannelClosed(t *testing.T) {
 	assert.Equal(t, "system", events[0].Type)
 	assert.Equal(t, "result", events[len(events)-1].Type)
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestACPClient_PermissionResponse(t *testing.T) {
@@ -549,33 +522,11 @@ func TestACPClient_PermissionResponse(t *testing.T) {
 	defer mock.close()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
-
-	// Send a permission request from mock and capture the response
-	responseCh := make(chan map[string]interface{}, 1)
-	var responseCaptureMu sync.Mutex
-	var originalReadLoop = false
-
-	// Override the mock's handler for permission responses
-	// The response goes back through stdin, so we need to read from mock's stdinR
-	go func() {
-		scanner := bufio.NewScanner(strings.NewReader("")) // placeholder
-		_ = scanner
-		// Read from the pipe that the client writes to (mock.stdinW is where client writes)
-		// We already have mock.readLoop reading from stdinR, so permission responses
-		// will appear as requests to the mock.
-		// Instead, let's verify via the client's RespondPermission directly
-		responseCaptureMu.Lock()
-		originalReadLoop = true
-		responseCaptureMu.Unlock()
-	}()
-
-	_ = originalReadLoop
+	defer func() { _ = client.Stop() }()
 
 	// The key test: RespondPermission writes a valid JSON-RPC response
 	err := client.RespondPermission(42, "allow_once")
 	assert.NoError(t, err)
-	_ = responseCh
 }
 
 func TestACPClient_ErrorResponse(t *testing.T) {
@@ -604,7 +555,7 @@ func TestACPClient_ErrorResponse(t *testing.T) {
 	mock.mu.Unlock()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	// The mock will write a normal result (nil) AND the error response,
 	// but the error should be in a separate message. Let's test with a simpler approach:
@@ -642,7 +593,7 @@ func TestACPClient_SendRequestTimeout(t *testing.T) {
 	mock.mu.Unlock()
 
 	client := newTestACPClient(mock)
-	defer client.Stop()
+	defer func() { _ = client.Stop() }()
 
 	_, err := client.sendRequestWithTimeout("slow_method", nil, 200*time.Millisecond)
 	require.Error(t, err)
@@ -723,7 +674,7 @@ func TestKiroSession_PromptError(t *testing.T) {
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "timeout")
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestMustMarshal(t *testing.T) {
@@ -805,7 +756,7 @@ func TestKiroSession_FullSessionFlow(t *testing.T) {
 	assert.Equal(t, "system", events[0].Type, "first event should be system init")
 	assert.Equal(t, "result", events[len(events)-1].Type, "last event should be result")
 
-	client.Stop()
+	_ = client.Stop()
 }
 
 func TestKiroSession_StreamingUpdatesBeforeResult(t *testing.T) {
