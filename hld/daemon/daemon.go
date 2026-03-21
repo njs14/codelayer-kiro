@@ -237,7 +237,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 
-	slog.Info("daemon started", "socket", d.socketPath, "http_enabled", d.httpServer != nil)
+	provider := d.config.Provider
+	if provider == "" {
+		provider = config.ProviderClaude
+	}
+	slog.Info("daemon started",
+		"socket", d.socketPath,
+		"http_enabled", d.httpServer != nil,
+		"provider", provider)
 
 	// Accept connections until context is cancelled
 	go d.acceptConnections(ctx)
