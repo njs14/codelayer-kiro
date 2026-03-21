@@ -67,6 +67,7 @@ type Info struct {
 	ProxyBaseURL                        string             `json:"proxy_base_url,omitempty"`
 	ProxyModelOverride                  string             `json:"proxy_model_override,omitempty"`
 	ProxyAPIKey                         string             `json:"proxy_api_key,omitempty"`
+	Provider                            string             `json:"provider,omitempty"` // "claude" or "kiro"
 }
 
 // LaunchSessionConfig contains the configuration for launching a new session
@@ -196,6 +197,7 @@ func SessionToInfo(s store.Session) Info {
 		ProxyBaseURL:                        s.ProxyBaseURL,
 		ProxyModelOverride:                  s.ProxyModelOverride,
 		ProxyAPIKey:                         s.ProxyAPIKey,
+		Provider:                            s.Provider,
 		// Note: CLICommand is not stored in database, it's a build-time constant
 	}
 

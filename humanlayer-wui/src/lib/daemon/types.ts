@@ -23,6 +23,7 @@ export type { Approval, Agent } from '@humanlayer/hld-sdk'
 // Extend SDK Session type with WUI-specific properties
 export interface Session extends SDKSession {
   additionalDirectories?: string[]
+  provider?: ProviderType // "claude" or "kiro" — set by daemon, used for resume routing
 }
 
 // Export SDK ConversationEvent type directly

@@ -1569,6 +1569,11 @@ func (m *Manager) ContinueSession(ctx context.Context, req ContinueSessionConfig
 			"final_status", parentSession.Status)
 	}
 
+	// Route to Kiro if the parent session was a Kiro session
+	if parentSession.Provider == hldconfig.ProviderKiro || (parentSession.Provider == "" && m.isKiroProvider()) {
+		return m.continueKiroSession(ctx, req, parentSession)
+	}
+
 	// Build config for resumed session
 	// Start by inheriting ALL configuration from parent session
 	config := claudecode.SessionConfig{
@@ -2619,6 +2624,7 @@ func (m *Manager) launchKiroSession(ctx context.Context, config LaunchSessionCon
 	startTime := time.Now()
 	dbSession := store.NewSessionFromConfig(sessionID, runID, claudeConfig)
 	dbSession.Summary = CalculateSummary(claudeConfig.Query)
+	dbSession.Provider = hldconfig.ProviderKiro
 
 	if isDraft {
 		dbSession.Status = store.SessionStatusDraft
@@ -2729,5 +2735,121 @@ func (m *Manager) launchKiroSession(ctx context.Context, config LaunchSessionCon
 		Status:    StatusRunning,
 		StartTime: startTime,
 		Config:    claudeConfig,
+	}, nil
+}
+
+// continueKiroSession resumes a Kiro session by loading the parent session's
+// Kiro session ID via the ACP session/load protocol.
+func (m *Manager) continueKiroSession(ctx context.Context, req ContinueSessionConfig, parentSession *store.Session) (*Session, error) {
+	acpClient, err := m.getKiroClient()
+	if err != nil {
+		return nil, fmt.Errorf("cannot continue Kiro session: %w", err)
+	}
+
+	sessionID := uuid.New().String()
+	runID := uuid.New().String()
+	startTime := time.Now()
+
+	// Build a minimal SessionConfig for storage
+	config := claudecode.SessionConfig{
+		Query:      req.Query,
+		WorkingDir: parentSession.WorkingDir,
+		Model:      claudecode.Model(parentSession.Model),
+	}
+
+	// Create session record with parent reference
+	dbSession := store.NewSessionFromConfig(sessionID, runID, config)
+	dbSession.ParentSessionID = req.ParentSessionID
+	dbSession.Summary = CalculateSummary(req.Query)
+	dbSession.Provider = hldconfig.ProviderKiro
+	dbSession.Status = store.SessionStatusStarting
+	// Inherit settings from parent
+	dbSession.AutoAcceptEdits = parentSession.AutoAcceptEdits
+	dbSession.DangerouslySkipPermissions = parentSession.DangerouslySkipPermissions
+	dbSession.DangerouslySkipPermissionsExpiresAt = parentSession.DangerouslySkipPermissionsExpiresAt
+	dbSession.Title = parentSession.Title
+	if dbSession.Model == "" {
+		dbSession.Model = parentSession.Model
+	}
+	if dbSession.WorkingDir == "" {
+		dbSession.WorkingDir = parentSession.WorkingDir
+	}
+
+	if err := m.store.CreateSession(ctx, dbSession); err != nil {
+		return nil, fmt.Errorf("failed to store session in database: %w", err)
+	}
+
+	// Ensure the ACP subprocess is running
+	if !acpClient.IsRunning() {
+		if err := acpClient.Start(parentSession.WorkingDir); err != nil {
+			m.updateSessionStatus(ctx, sessionID, StatusFailed, err.Error())
+			return nil, fmt.Errorf("failed to start Kiro ACP subprocess: %w", err)
+		}
+	}
+
+	// Create the Kiro session with ResumeSessionID to trigger session/load
+	kiroSession, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:       sessionID,
+		Query:           req.Query,
+		WorkingDir:      parentSession.WorkingDir,
+		ACPClient:       acpClient,
+		ResumeSessionID: parentSession.ClaudeSessionID, // Kiro session ID stored in ClaudeSessionID field
+		PermissionHandler: func(sid, toolCallID, title string, options []string) string {
+			return "allow_once"
+		},
+	})
+	if err != nil {
+		m.updateSessionStatus(ctx, sessionID, StatusFailed, err.Error())
+		return nil, fmt.Errorf("failed to resume Kiro session: %w", err)
+	}
+
+	// Store active process
+	m.mu.Lock()
+	m.activeProcesses[sessionID] = kiroSession
+	m.mu.Unlock()
+
+	// Update status to running
+	statusRunning := string(StatusRunning)
+	now := time.Now()
+	update := store.SessionUpdate{
+		Status:         &statusRunning,
+		LastActivityAt: &now,
+	}
+	kiroSID := kiroSession.kiroSessionID
+	update.ClaudeSessionID = &kiroSID
+	if err := m.store.UpdateSession(ctx, sessionID, update); err != nil {
+		slog.Error("failed to update session status to running", "error", err)
+	}
+
+	// Publish status change event
+	if m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type: bus.EventSessionStatusChanged,
+			Data: map[string]interface{}{
+				"session_id":        sessionID,
+				"run_id":            runID,
+				"parent_session_id": req.ParentSessionID,
+				"old_status":        string(StatusStarting),
+				"new_status":        string(StatusRunning),
+			},
+		})
+	}
+
+	// Monitor session lifecycle in background
+	go m.monitorSession(ctx, sessionID, runID, kiroSession, startTime, config)
+
+	slog.Info("continued Kiro session",
+		"session_id", sessionID,
+		"parent_session_id", req.ParentSessionID,
+		"run_id", runID,
+		"kiro_session_id", kiroSession.kiroSessionID,
+		"working_dir", parentSession.WorkingDir)
+
+	return &Session{
+		ID:        sessionID,
+		RunID:     runID,
+		Status:    StatusRunning,
+		StartTime: startTime,
+		Config:    config,
 	}, nil
 }

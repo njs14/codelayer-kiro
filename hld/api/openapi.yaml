@@ -1293,6 +1293,13 @@ components:
           nullable: true
           description: JSON blob of editor state for draft sessions
           example: '{"content":"console.log(\"hello\");","cursorPosition":24}'
+        provider:
+          type: string
+          description: Backend provider for this session
+          enum:
+            - claude
+            - kiro
+          example: claude
 
     SessionStatus:
       type: string

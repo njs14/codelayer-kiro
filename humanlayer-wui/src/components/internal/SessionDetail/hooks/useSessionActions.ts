@@ -133,11 +133,13 @@ export function useSessionActions({
       // Track session continued event
       trackEvent(POSTHOG_EVENTS.SESSION_CONTINUED, {
         model: session.model || session.proxyModelOverride || undefined,
-        provider: session.proxyEnabled
-          ? session.proxyBaseUrl?.includes('baseten')
-            ? 'baseten'
-            : 'openrouter'
-          : 'anthropic',
+        provider: session.provider === 'kiro'
+          ? 'kiro'
+          : session.proxyEnabled
+            ? session.proxyBaseUrl?.includes('baseten')
+              ? 'baseten'
+              : 'openrouter'
+            : 'anthropic',
       })
 
       // Clear fork state

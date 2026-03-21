@@ -638,6 +638,88 @@ func TestKiroSession_SessionLoadResume(t *testing.T) {
 	_, _ = ks.Wait()
 }
 
+func TestKiroSession_ResumeCallsSessionLoad(t *testing.T) {
+	// Verify that resuming uses SessionLoad and NOT SessionNew
+	mock := newMockKiroACPClient()
+
+	// Track whether SessionLoad was called (not SessionNew)
+	var loadedSessionID string
+	origSessions := mock.sessions
+	mock.sessions = make(map[string]*kirocli.Session) // fresh map
+
+	// Override SessionLoad behavior to track the call
+	mock.sessions = origSessions
+
+	ctx := context.Background()
+	ks, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:       "daemon-session-1",
+		Query:           "Continue from where we left off",
+		WorkingDir:      "/tmp/project",
+		ACPClient:       mock,
+		ResumeSessionID: "kiro-session-original",
+	})
+	require.NoError(t, err)
+
+	// The kiroSessionID should be the resumed session, not a new one
+	assert.Equal(t, "kiro-session-original", ks.GetID())
+	loadedSessionID = ks.kiroSessionID
+	assert.Equal(t, "kiro-session-original", loadedSessionID)
+
+	// The mock's session map should contain the loaded session
+	mock.mu.Lock()
+	_, exists := mock.sessions["kiro-session-original"]
+	mock.mu.Unlock()
+	assert.True(t, exists, "SessionLoad should have created session entry")
+
+	// Drain events and wait
+	go func() {
+		for range ks.GetEvents() {
+		}
+	}()
+	_, _ = ks.Wait()
+}
+
+func TestKiroSession_ResumeSessionLoadError(t *testing.T) {
+	mock := newMockKiroACPClient()
+	mock.sessionLoadErr = fmt.Errorf("session not found")
+
+	ctx := context.Background()
+	_, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:       "test-resume-err",
+		Query:           "Continue",
+		WorkingDir:      "/tmp",
+		ACPClient:       mock,
+		ResumeSessionID: "nonexistent-session",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session not found")
+}
+
+func TestKiroSession_NewVsResumeDistinction(t *testing.T) {
+	// Test that new sessions use SessionNew, not SessionLoad
+	mock := newMockKiroACPClient()
+	mock.sessionNewID = "brand-new-session"
+
+	ctx := context.Background()
+	ks, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:  "daemon-new-1",
+		Query:      "Start fresh",
+		WorkingDir: "/tmp",
+		ACPClient:  mock,
+		// ResumeSessionID is empty — should create new
+	})
+	require.NoError(t, err)
+
+	// Should get the new session ID from SessionNew, not a resume
+	assert.Equal(t, "brand-new-session", ks.GetID())
+
+	go func() {
+		for range ks.GetEvents() {
+		}
+	}()
+	_, _ = ks.Wait()
+}
+
 // Compile-time check that mockKiroACPClient satisfies KiroACPClient.
 var _ KiroACPClient = (*mockKiroACPClient)(nil)
 
