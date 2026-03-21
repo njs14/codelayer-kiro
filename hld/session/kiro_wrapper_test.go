@@ -1,16 +1,14 @@
 package session
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"sync"
 	"testing"
 	"time"
 
 	claudecode "github.com/humanlayer/humanlayer/claudecode-go"
+	kirocli "github.com/humanlayer/humanlayer/kirocli-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,283 +19,170 @@ func TestKiroSessionImplementsClaudeSession(t *testing.T) {
 	var _ ClaudeSession = (*KiroSession)(nil)
 }
 
-// --- Mock ACP subprocess ---
+// --- Mock ACP client (implements KiroACPClient) ---
 
-// mockACPProcess simulates a kiro-cli acp subprocess for unit testing.
-// It reads JSON-RPC requests from its stdin and writes responses + notifications to its stdout.
-type mockACPProcess struct {
-	stdinR  io.ReadCloser
-	stdinW  io.WriteCloser
-	stdoutR io.ReadCloser
-	stdoutW io.WriteCloser
-	stderrR io.ReadCloser
-	stderrW io.WriteCloser
+// mockKiroACPClient simulates a kirocli.Client for unit testing.
+type mockKiroACPClient struct {
+	mu sync.Mutex
 
-	mu       sync.Mutex
-	requests []acpRequest // captured requests
-	// Custom response handlers keyed by method name
-	handlers map[string]func(req acpRequest) interface{}
+	// Session tracking
+	sessions map[string]*kirocli.Session
+
+	// Permission handler set by SetPermissionHandler
+	permissionHandler kirocli.PermissionHandler
+
+	// Configurable responses
+	sessionNewID    string
+	sessionNewErr   error
+	sessionLoadErr  error
+	promptResult    *kirocli.PromptResult
+	promptErr       error
+	promptDelay     time.Duration
+	running         bool
+	stopErr         error
+
+	// Tracking
+	promptCalls []string
 }
 
-func newMockACPProcess() *mockACPProcess {
-	stdinR, stdinW := io.Pipe()
-	stdoutR, stdoutW := io.Pipe()
-	stderrR, stderrW := io.Pipe()
-
-	m := &mockACPProcess{
-		stdinR:   stdinR,
-		stdinW:   stdinW,
-		stdoutR:  stdoutR,
-		stdoutW:  stdoutW,
-		stderrR:  stderrR,
-		stderrW:  stderrW,
-		handlers: make(map[string]func(req acpRequest) interface{}),
-	}
-
-	// Default handlers
-	m.handlers["initialize"] = func(req acpRequest) interface{} {
-		return map[string]interface{}{"protocolVersion": 1}
-	}
-	m.handlers["session/new"] = func(req acpRequest) interface{} {
-		return map[string]interface{}{
-			"sessionId": "kiro-session-123",
-			"modes":     map[string]interface{}{},
-		}
-	}
-	m.handlers["session/load"] = func(req acpRequest) interface{} {
-		return map[string]interface{}{}
-	}
-	m.handlers["session/prompt"] = func(req acpRequest) interface{} {
-		return map[string]interface{}{
-			"text": "Task completed successfully.",
-		}
-	}
-
-	// Start the mock's read loop
-	go m.readLoop()
-
-	return m
-}
-
-func (m *mockACPProcess) readLoop() {
-	scanner := bufio.NewScanner(m.stdinR)
-	scanner.Buffer(make([]byte, 0), 10*1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var req acpRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			continue
-		}
-
-		m.mu.Lock()
-		m.requests = append(m.requests, req)
-		handler, ok := m.handlers[req.Method]
-		m.mu.Unlock()
-
-		if ok {
-			result := handler(req)
-			resultJSON, _ := json.Marshal(result)
-			resp := map[string]interface{}{
-				"jsonrpc": "2.0",
-				"id":      req.ID,
-				"result":  json.RawMessage(resultJSON),
-			}
-			data, _ := json.Marshal(resp)
-			data = append(data, '\n')
-			_, _ = m.stdoutW.Write(data)
-		}
-	}
-}
-
-// sendNotification sends a JSON-RPC notification from the mock subprocess stdout.
-func (m *mockACPProcess) sendNotification(method string, params interface{}) {
-	paramsJSON, _ := json.Marshal(params)
-	msg := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  method,
-		"params":  json.RawMessage(paramsJSON),
-	}
-	data, _ := json.Marshal(msg)
-	data = append(data, '\n')
-	_, _ = m.stdoutW.Write(data)
-}
-
-func (m *mockACPProcess) close() {
-	_ = m.stdinW.Close()
-	_ = m.stdoutW.Close()
-	_ = m.stderrW.Close()
-}
-
-// --- Helper to create an ACPClient wired to the mock ---
-
-func newTestACPClient(mock *mockACPProcess) *ACPClient {
-	client := &ACPClient{
-		cliPath: "mock-kiro-cli",
-		done:    make(chan struct{}),
-	}
-	client.stdin = mock.stdinW
-	client.stdout = mock.stdoutR
-	client.stderr = mock.stderrR
-	client.running.Store(true)
-
-	// Start background readers
-	go client.readLoop()
-	go client.readStderr()
-
-	return client
-}
-
-func TestACPClient_Handshake(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	// Perform handshake
-	_, err := client.sendRequest("initialize", acpInitializeParams{
-		ProtocolVersion: 1,
-		ClientCapabilities: map[string]interface{}{
-			"fs":       map[string]interface{}{"readTextFile": true, "writeTextFile": true},
-			"terminal": true,
+func newMockKiroACPClient() *mockKiroACPClient {
+	return &mockKiroACPClient{
+		sessions:     make(map[string]*kirocli.Session),
+		sessionNewID: "kiro-session-123",
+		promptResult: &kirocli.PromptResult{
+			Text: "Task completed successfully.",
 		},
-		ClientInfo: map[string]string{"name": "test", "version": "0.1.0"},
-	})
-	require.NoError(t, err)
-
-	// Verify the request was received
-	mock.mu.Lock()
-	defer mock.mu.Unlock()
-	require.Len(t, mock.requests, 1)
-	assert.Equal(t, "initialize", mock.requests[0].Method)
-}
-
-func TestACPClient_SessionNew(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	sessionID, err := client.SessionNew("/tmp/test-project")
-	require.NoError(t, err)
-	assert.Equal(t, "kiro-session-123", sessionID)
-}
-
-func TestACPClient_SessionPrompt(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	result, err := client.SessionPrompt("kiro-session-123", "Hello world", 10*time.Second)
-	require.NoError(t, err)
-
-	var parsed map[string]interface{}
-	err = json.Unmarshal(result, &parsed)
-	require.NoError(t, err)
-	assert.Equal(t, "Task completed successfully.", parsed["text"])
-}
-
-func TestACPClient_SessionUpdateCallback(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	var received acpSessionUpdateParams
-	receivedCh := make(chan struct{}, 1)
-	client.onSessionUpdate = func(params acpSessionUpdateParams) {
-		received = params
-		receivedCh <- struct{}{}
-	}
-
-	// Send a session update notification from mock
-	mock.sendNotification("session/update", map[string]interface{}{
-		"sessionId": "kiro-session-123",
-		"update": map[string]interface{}{
-			"sessionUpdate": "agent_message_chunk",
-			"content":       map[string]interface{}{"type": "text", "text": "Hello from Kiro"},
-		},
-	})
-
-	select {
-	case <-receivedCh:
-		assert.Equal(t, "kiro-session-123", received.SessionID)
-		assert.Equal(t, "agent_message_chunk", received.Update.SessionUpdate)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for session update callback")
+		running: true,
 	}
 }
 
-func TestACPClient_MetadataCallback(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	var received acpMetadataParams
-	receivedCh := make(chan struct{}, 1)
-	client.onMetadata = func(params acpMetadataParams) {
-		received = params
-		receivedCh <- struct{}{}
-	}
-
-	mock.sendNotification("_kiro.dev/metadata", map[string]interface{}{
-		"sessionId":              "kiro-session-123",
-		"contextUsagePercentage": 45.2,
-		"credits":                0.15,
-	})
-
-	select {
-	case <-receivedCh:
-		assert.Equal(t, "kiro-session-123", received.SessionID)
-		assert.InDelta(t, 45.2, received.ContextUsagePercentage, 0.01)
-		assert.InDelta(t, 0.15, received.Credits, 0.001)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for metadata callback")
-	}
+func (m *mockKiroACPClient) SetPermissionHandler(handler kirocli.PermissionHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.permissionHandler = handler
 }
+
+func (m *mockKiroACPClient) SessionNew(cwd string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessionNewErr != nil {
+		return "", m.sessionNewErr
+	}
+	sid := m.sessionNewID
+	m.sessions[sid] = &kirocli.Session{
+		ID:        sid,
+		StartTime: time.Now(),
+		Updates:   make(chan kirocli.StreamUpdate, 100),
+		Metadata:  make(chan kirocli.MetadataUpdate, 10),
+	}
+	return sid, nil
+}
+
+func (m *mockKiroACPClient) SessionLoad(sessionID, cwd string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessionLoadErr != nil {
+		return m.sessionLoadErr
+	}
+	if _, ok := m.sessions[sessionID]; !ok {
+		m.sessions[sessionID] = &kirocli.Session{
+			ID:        sessionID,
+			StartTime: time.Now(),
+			Updates:   make(chan kirocli.StreamUpdate, 100),
+			Metadata:  make(chan kirocli.MetadataUpdate, 10),
+		}
+	}
+	return nil
+}
+
+func (m *mockKiroACPClient) SessionPrompt(sessionID, text string, timeout time.Duration) (*kirocli.PromptResult, error) {
+	m.mu.Lock()
+	delay := m.promptDelay
+	m.promptCalls = append(m.promptCalls, text)
+	m.mu.Unlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.promptErr != nil {
+		return nil, m.promptErr
+	}
+	result := m.promptResult
+	if result != nil {
+		result.SessionID = sessionID
+	}
+	return result, nil
+}
+
+func (m *mockKiroACPClient) GetSession(sessionID string) *kirocli.Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sessions[sessionID]
+}
+
+func (m *mockKiroACPClient) Stop() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.running = false
+	return m.stopErr
+}
+
+func (m *mockKiroACPClient) IsRunning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.running
+}
+
+// getSession returns the tracked session for the given ID (test helper).
+func (m *mockKiroACPClient) getSession(sessionID string) *kirocli.Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sessions[sessionID]
+}
+
+// invokePermissionHandler calls the registered permission handler (test helper).
+func (m *mockKiroACPClient) invokePermissionHandler(req kirocli.PermissionRequest) string {
+	m.mu.Lock()
+	handler := m.permissionHandler
+	m.mu.Unlock()
+	if handler != nil {
+		return handler(req)
+	}
+	return "deny"
+}
+
+// --- Tests ---
 
 func TestKiroSession_EventMapping(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
+	mock := newMockKiroACPClient()
 
-	client := newTestACPClient(mock)
+	// Create session to set up channels
+	sid, err := mock.SessionNew("/tmp")
+	require.NoError(t, err)
+	sess := mock.getSession(sid)
 
-	// Create a KiroSession manually (bypassing NewKiroSession which calls ACP)
+	// Create a KiroSession manually (bypassing NewKiroSession)
 	ks := &KiroSession{
 		id:            "test-session",
-		kiroSessionID: "kiro-session-123",
-		client:        client,
+		kiroSessionID: sid,
+		client:        mock,
 		events:        make(chan claudecode.StreamEvent, 100),
 		done:          make(chan struct{}),
 		promptDone:    make(chan struct{}),
 	}
 
+	// Start the update consumer
+	go ks.consumeUpdates(sess)
+
 	// Test agent_message_chunk → assistant event
-	ks.handleSessionUpdate(acpSessionUpdateParams{
-		SessionID: "kiro-session-123",
-		Update: struct {
-			SessionUpdate string                 `json:"sessionUpdate"`
-			Content       map[string]interface{} `json:"content,omitempty"`
-			ToolCallID    string                 `json:"toolCallId,omitempty"`
-			Title         string                 `json:"title,omitempty"`
-			Kind          string                 `json:"kind,omitempty"`
-			Status        string                 `json:"status,omitempty"`
-		}{
-			SessionUpdate: "agent_message_chunk",
-			Content:       map[string]interface{}{"type": "text", "text": "Hello from Kiro"},
-		},
-	})
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID: sid,
+		Kind:      kirocli.UpdateAgentMessageChunk,
+		Text:      "Hello from Kiro",
+	}
 
 	select {
 	case event := <-ks.events:
@@ -311,21 +196,12 @@ func TestKiroSession_EventMapping(t *testing.T) {
 	}
 
 	// Test tool_call → assistant event with tool_use content
-	ks.handleSessionUpdate(acpSessionUpdateParams{
-		SessionID: "kiro-session-123",
-		Update: struct {
-			SessionUpdate string                 `json:"sessionUpdate"`
-			Content       map[string]interface{} `json:"content,omitempty"`
-			ToolCallID    string                 `json:"toolCallId,omitempty"`
-			Title         string                 `json:"title,omitempty"`
-			Kind          string                 `json:"kind,omitempty"`
-			Status        string                 `json:"status,omitempty"`
-		}{
-			SessionUpdate: "tool_call",
-			ToolCallID:    "tc-1",
-			Title:         "Creating app.py",
-		},
-	})
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID:  sid,
+		Kind:       kirocli.UpdateToolCall,
+		ToolCallID: "tc-1",
+		Title:      "Creating app.py",
+	}
 
 	select {
 	case event := <-ks.events:
@@ -340,21 +216,12 @@ func TestKiroSession_EventMapping(t *testing.T) {
 	}
 
 	// Test tool_call_update → assistant event with tool_result content
-	ks.handleSessionUpdate(acpSessionUpdateParams{
-		SessionID: "kiro-session-123",
-		Update: struct {
-			SessionUpdate string                 `json:"sessionUpdate"`
-			Content       map[string]interface{} `json:"content,omitempty"`
-			ToolCallID    string                 `json:"toolCallId,omitempty"`
-			Title         string                 `json:"title,omitempty"`
-			Kind          string                 `json:"kind,omitempty"`
-			Status        string                 `json:"status,omitempty"`
-		}{
-			SessionUpdate: "tool_call_update",
-			ToolCallID:    "tc-1",
-			Status:        "completed",
-		},
-	})
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID:  sid,
+		Kind:       kirocli.UpdateToolCallUpdate,
+		ToolCallID: "tc-1",
+		Status:     "completed",
+	}
 
 	select {
 	case event := <-ks.events:
@@ -366,46 +233,33 @@ func TestKiroSession_EventMapping(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for event")
 	}
-
-	_ = client.Stop()
 }
 
 func TestKiroSession_PermissionForwarding(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
+	mock := newMockKiroACPClient()
 
 	var permHandlerCalled bool
 	var permTitle string
 
-	ks := &KiroSession{
-		id:            "test-session",
-		kiroSessionID: "kiro-session-123",
-		client:        client,
-		events:        make(chan claudecode.StreamEvent, 100),
-		done:          make(chan struct{}),
-		promptDone:    make(chan struct{}),
-		permissionHandler: func(sessionID, toolCallID, title string, options []string) string {
+	_, err := NewKiroSession(context.Background(), KiroSessionConfig{
+		SessionID:  "test-session",
+		Query:      "test",
+		WorkingDir: "/tmp",
+		ACPClient:  mock,
+		PermissionHandler: func(sessionID, toolCallID, title string, options []string) string {
 			permHandlerCalled = true
 			permTitle = title
 			return "allow_once"
 		},
-	}
+	})
+	require.NoError(t, err)
 
-	ks.handlePermissionRequest(42, acpPermissionRequestParams{
-		SessionID: "kiro-session-123",
-		ToolCall: struct {
-			ToolCallID string `json:"toolCallId"`
-			Title      string `json:"title"`
-		}{
-			ToolCallID: "tc-perm-1",
-			Title:      "Creating app.py",
-		},
-		Options: []struct {
-			OptionID string `json:"optionId"`
-			Name     string `json:"name"`
-		}{
+	// Invoke the permission handler that was wired up
+	result := mock.invokePermissionHandler(kirocli.PermissionRequest{
+		SessionID:  "kiro-session-123",
+		ToolCallID: "tc-perm-1",
+		Title:      "Creating app.py",
+		Options: []kirocli.PermissionOption{
 			{OptionID: "allow_once", Name: "Yes"},
 			{OptionID: "deny", Name: "Deny"},
 		},
@@ -413,41 +267,50 @@ func TestKiroSession_PermissionForwarding(t *testing.T) {
 
 	assert.True(t, permHandlerCalled)
 	assert.Equal(t, "Creating app.py", permTitle)
-
-	_ = client.Stop()
+	assert.Equal(t, "allow_once", result)
 }
 
 func TestKiroSession_MetadataTracking(t *testing.T) {
+	mock := newMockKiroACPClient()
+
+	// Create session to set up channels
+	sid, err := mock.SessionNew("/tmp")
+	require.NoError(t, err)
+	sess := mock.getSession(sid)
+
 	ks := &KiroSession{
 		id:            "test-session",
-		kiroSessionID: "kiro-session-123",
+		kiroSessionID: sid,
 		events:        make(chan claudecode.StreamEvent, 100),
 		done:          make(chan struct{}),
 		promptDone:    make(chan struct{}),
 	}
 
-	ks.handleMetadata(acpMetadataParams{
-		SessionID:              "kiro-session-123",
+	// Start metadata consumer
+	go ks.consumeMetadata(sess)
+
+	sess.Metadata <- kirocli.MetadataUpdate{
+		SessionID:              sid,
 		ContextUsagePercentage: 72.5,
 		Credits:                1.23,
-	})
+	}
+
+	// Give the goroutine a moment to process
+	time.Sleep(50 * time.Millisecond)
 
 	assert.InDelta(t, 72.5, ks.GetContextPercentage(), 0.01)
 	assert.InDelta(t, 1.23, ks.GetCredits(), 0.001)
 }
 
 func TestKiroSession_WaitReturnsResult(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
+	mock := newMockKiroACPClient()
 
 	ctx := context.Background()
 	ks, err := NewKiroSession(ctx, KiroSessionConfig{
 		SessionID:  "test-wait-session",
 		Query:      "Write hello world",
 		WorkingDir: "/tmp",
-		ACPClient:  client,
+		ACPClient:  mock,
 	})
 	require.NoError(t, err)
 
@@ -457,22 +320,17 @@ func TestKiroSession_WaitReturnsResult(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "result", result.Type)
 	assert.Equal(t, "Task completed successfully.", result.Result)
-
-	_ = client.Stop()
 }
 
 func TestKiroSession_GetIDReturnsKiroSessionID(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
+	mock := newMockKiroACPClient()
 
 	ctx := context.Background()
 	ks, err := NewKiroSession(ctx, KiroSessionConfig{
 		SessionID:  "daemon-session-1",
 		Query:      "test",
 		WorkingDir: "/tmp",
-		ACPClient:  client,
+		ACPClient:  mock,
 	})
 	require.NoError(t, err)
 
@@ -484,22 +342,17 @@ func TestKiroSession_GetIDReturnsKiroSessionID(t *testing.T) {
 		}
 	}()
 	_, _ = ks.Wait()
-
-	_ = client.Stop()
 }
 
 func TestKiroSession_EventsChannelClosed(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
+	mock := newMockKiroACPClient()
 
 	ctx := context.Background()
 	ks, err := NewKiroSession(ctx, KiroSessionConfig{
 		SessionID:  "test-events-close",
 		Query:      "test",
 		WorkingDir: "/tmp",
-		ACPClient:  client,
+		ACPClient:  mock,
 	})
 	require.NoError(t, err)
 
@@ -513,56 +366,6 @@ func TestKiroSession_EventsChannelClosed(t *testing.T) {
 	require.GreaterOrEqual(t, len(events), 2)
 	assert.Equal(t, "system", events[0].Type)
 	assert.Equal(t, "result", events[len(events)-1].Type)
-
-	_ = client.Stop()
-}
-
-func TestACPClient_PermissionResponse(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	// The key test: RespondPermission writes a valid JSON-RPC response
-	err := client.RespondPermission(42, "allow_once")
-	assert.NoError(t, err)
-}
-
-func TestACPClient_ErrorResponse(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	// Override session/new to return an error
-	mock.mu.Lock()
-	mock.handlers["session/new"] = func(req acpRequest) interface{} {
-		// Write error response directly
-		errResp := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      req.ID,
-			"error": map[string]interface{}{
-				"code":    -32600,
-				"message": "Invalid session configuration",
-			},
-		}
-		// We need to write this as an error, not a result
-		// Override the handler to write to stdout directly
-		data, _ := json.Marshal(errResp)
-		data = append(data, '\n')
-		_, _ = mock.stdoutW.Write(data)
-		return nil // return nil so the normal response isn't written
-	}
-	mock.mu.Unlock()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	// The mock will write a normal result (nil) AND the error response,
-	// but the error should be in a separate message. Let's test with a simpler approach:
-	// just verify the client handles timeout gracefully
-	_, err := client.sendRequestWithTimeout("nonexistent_method", nil, 500*time.Millisecond)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
 }
 
 func TestConfig_KiroProvider(t *testing.T) {
@@ -580,24 +383,6 @@ func TestConfig_KiroProvider(t *testing.T) {
 		Provider: "claude",
 	}
 	assert.Equal(t, "claude", cfg2.Provider)
-}
-
-func TestACPClient_SendRequestTimeout(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	// Override to never respond
-	mock.mu.Lock()
-	mock.handlers["slow_method"] = nil // no handler = no response
-	delete(mock.handlers, "slow_method")
-	mock.mu.Unlock()
-
-	client := newTestACPClient(mock)
-	defer func() { _ = client.Stop() }()
-
-	_, err := client.sendRequestWithTimeout("slow_method", nil, 200*time.Millisecond)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
 }
 
 func TestKiroSession_InterruptAndKill(t *testing.T) {
@@ -618,44 +403,38 @@ func TestKiroSession_InterruptAndKill(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestACPClient_StopIdempotent(t *testing.T) {
-	client := &ACPClient{
-		cliPath: "mock",
-		done:    make(chan struct{}),
-	}
-	// Not running — Stop should be a no-op
-	err := client.Stop()
-	assert.NoError(t, err)
+func TestKiroSession_InterruptCallsStop(t *testing.T) {
+	mock := newMockKiroACPClient()
 
-	// Call again — still no-op
-	err = client.Stop()
-	assert.NoError(t, err)
-}
-
-func TestKiroSession_PromptError(t *testing.T) {
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	// Override session/prompt to never respond (simulate error via timeout)
-	mock.mu.Lock()
-	delete(mock.handlers, "session/prompt")
-	mock.mu.Unlock()
-
-	client := newTestACPClient(mock)
-
-	ctx := context.Background()
 	ks := &KiroSession{
-		id:            "test-error",
+		id:            "test-session",
 		kiroSessionID: "kiro-session-123",
-		client:        client,
+		client:        mock,
 		events:        make(chan claudecode.StreamEvent, 100),
 		done:          make(chan struct{}),
 		promptDone:    make(chan struct{}),
-		promptTimeout: 500 * time.Millisecond, // short timeout for test
 	}
 
-	// Run prompt which will timeout
-	go ks.runPrompt(ctx, "will timeout")
+	assert.True(t, mock.IsRunning())
+	err := ks.Interrupt()
+	assert.NoError(t, err)
+	assert.False(t, mock.IsRunning())
+}
+
+func TestKiroSession_PromptError(t *testing.T) {
+	mock := newMockKiroACPClient()
+	mock.promptErr = fmt.Errorf("timeout waiting for response to session/prompt (id=1)")
+	mock.promptResult = nil
+
+	ctx := context.Background()
+	ks, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:     "test-error",
+		Query:         "will fail",
+		WorkingDir:    "/tmp",
+		ACPClient:     mock,
+		PromptTimeout: 500 * time.Millisecond,
+	})
+	require.NoError(t, err)
 
 	// Drain events
 	var lastEvent claudecode.StreamEvent
@@ -673,45 +452,31 @@ func TestKiroSession_PromptError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "timeout")
-
-	_ = client.Stop()
-}
-
-func TestMustMarshal(t *testing.T) {
-	result := mustMarshal(map[string]string{"key": "value"})
-	assert.Contains(t, string(result), "key")
-	assert.Contains(t, string(result), "value")
-}
-
-func TestMustMarshalPanicsOnUnsupported(t *testing.T) {
-	assert.Panics(t, func() {
-		mustMarshal(make(chan int))
-	})
 }
 
 func TestKiroSession_UnhandledUpdateType(t *testing.T) {
+	mock := newMockKiroACPClient()
+
+	sid, err := mock.SessionNew("/tmp")
+	require.NoError(t, err)
+	sess := mock.getSession(sid)
+
 	ks := &KiroSession{
 		id:            "test-session",
-		kiroSessionID: "kiro-session-123",
+		kiroSessionID: sid,
 		events:        make(chan claudecode.StreamEvent, 100),
 		done:          make(chan struct{}),
 		promptDone:    make(chan struct{}),
 	}
 
+	// Start the update consumer
+	go ks.consumeUpdates(sess)
+
 	// Send an unrecognized update type — should not produce an event
-	ks.handleSessionUpdate(acpSessionUpdateParams{
-		SessionID: "kiro-session-123",
-		Update: struct {
-			SessionUpdate string                 `json:"sessionUpdate"`
-			Content       map[string]interface{} `json:"content,omitempty"`
-			ToolCallID    string                 `json:"toolCallId,omitempty"`
-			Title         string                 `json:"title,omitempty"`
-			Kind          string                 `json:"kind,omitempty"`
-			Status        string                 `json:"status,omitempty"`
-		}{
-			SessionUpdate: "unknown_type",
-		},
-	})
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID: sid,
+		Kind:      kirocli.StreamUpdateKind("unknown_type"),
+	}
 
 	select {
 	case <-ks.events:
@@ -722,20 +487,14 @@ func TestKiroSession_UnhandledUpdateType(t *testing.T) {
 }
 
 func TestKiroSession_FullSessionFlow(t *testing.T) {
-	// Integration-style test using KiroSession directly with injected updates.
-	// We test event mapping, metadata tracking, and result collection
-	// without relying on the mock prompt handler's timing.
-	mock := newMockACPProcess()
-	defer mock.close()
-
-	client := newTestACPClient(mock)
+	mock := newMockKiroACPClient()
 
 	ctx := context.Background()
 	ks, err := NewKiroSession(ctx, KiroSessionConfig{
 		SessionID:  "full-flow-test",
 		Query:      "Create a hello world app",
 		WorkingDir: "/tmp",
-		ACPClient:  client,
+		ACPClient:  mock,
 	})
 	require.NoError(t, err)
 
@@ -755,78 +514,129 @@ func TestKiroSession_FullSessionFlow(t *testing.T) {
 	require.GreaterOrEqual(t, len(events), 2)
 	assert.Equal(t, "system", events[0].Type, "first event should be system init")
 	assert.Equal(t, "result", events[len(events)-1].Type, "last event should be result")
-
-	_ = client.Stop()
 }
 
 func TestKiroSession_StreamingUpdatesBeforeResult(t *testing.T) {
-	// Test that session updates and metadata are properly tracked when
-	// injected before the session completes.
-	ks := &KiroSession{
-		id:            "test-streaming",
-		kiroSessionID: "kiro-session-123",
-		events:        make(chan claudecode.StreamEvent, 100),
-		done:          make(chan struct{}),
-		promptDone:    make(chan struct{}),
+	// Use a mock that delays the prompt so we can inject updates before it completes.
+	mock := newMockKiroACPClient()
+	mock.promptDelay = 200 * time.Millisecond
+
+	ctx := context.Background()
+	ks, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:  "test-streaming",
+		Query:      "Write code",
+		WorkingDir: "/tmp",
+		ACPClient:  mock,
+	})
+	require.NoError(t, err)
+
+	sess := mock.getSession("kiro-session-123")
+	require.NotNil(t, sess)
+
+	// Inject updates while the prompt is still pending
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID: "kiro-session-123",
+		Kind:      kirocli.UpdateAgentMessageChunk,
+		Text:      "Writing code...",
+	}
+	sess.Updates <- kirocli.StreamUpdate{
+		SessionID:  "kiro-session-123",
+		Kind:       kirocli.UpdateToolCall,
+		ToolCallID: "tc-001",
+		Title:      "Write file",
 	}
 
-	// Simulate updates arriving during a prompt
-	ks.handleSessionUpdate(acpSessionUpdateParams{
-		SessionID: "kiro-session-123",
-		Update: struct {
-			SessionUpdate string                 `json:"sessionUpdate"`
-			Content       map[string]interface{} `json:"content,omitempty"`
-			ToolCallID    string                 `json:"toolCallId,omitempty"`
-			Title         string                 `json:"title,omitempty"`
-			Kind          string                 `json:"kind,omitempty"`
-			Status        string                 `json:"status,omitempty"`
-		}{
-			SessionUpdate: "agent_message_chunk",
-			Content:       map[string]interface{}{"type": "text", "text": "Writing code..."},
-		},
-	})
-
-	ks.handleSessionUpdate(acpSessionUpdateParams{
-		SessionID: "kiro-session-123",
-		Update: struct {
-			SessionUpdate string                 `json:"sessionUpdate"`
-			Content       map[string]interface{} `json:"content,omitempty"`
-			ToolCallID    string                 `json:"toolCallId,omitempty"`
-			Title         string                 `json:"title,omitempty"`
-			Kind          string                 `json:"kind,omitempty"`
-			Status        string                 `json:"status,omitempty"`
-		}{
-			SessionUpdate: "tool_call",
-			ToolCallID:    "tc-001",
-			Title:         "Write file",
-		},
-	})
-
-	ks.handleMetadata(acpMetadataParams{
+	sess.Metadata <- kirocli.MetadataUpdate{
 		SessionID:              "kiro-session-123",
 		ContextUsagePercentage: 30.5,
 		Credits:                0.05,
-	})
+	}
 
-	// Drain events
+	// Collect events (at least the system init + 2 updates)
 	var events []claudecode.StreamEvent
-	for i := 0; i < 2; i++ {
+	// Read up to 4 events or timeout (system init + 2 updates + result)
+	for i := 0; i < 4; i++ {
 		select {
-		case event := <-ks.events:
+		case event, ok := <-ks.events:
+			if !ok {
+				goto done
+			}
 			events = append(events, event)
-		case <-time.After(time.Second):
-			t.Fatal("timeout waiting for event")
+		case <-time.After(2 * time.Second):
+			goto done
 		}
 	}
 
-	require.Len(t, events, 2)
-	assert.Equal(t, "assistant", events[0].Type)
-	assert.Equal(t, "assistant", events[1].Type)
+done:
+	// Drain remaining events
+	go func() {
+		for range ks.events {
+		}
+	}()
+	_, _ = ks.Wait()
 
-	// Verify metadata
+	// Should have system + at least 2 assistant events
+	require.GreaterOrEqual(t, len(events), 3)
+	assert.Equal(t, "system", events[0].Type)
+	assert.Equal(t, "assistant", events[1].Type)
+	assert.Equal(t, "assistant", events[2].Type)
+
+	// Verify metadata was tracked
 	assert.InDelta(t, 30.5, ks.GetContextPercentage(), 0.1)
 	assert.InDelta(t, 0.05, ks.GetCredits(), 0.001)
 }
+
+func TestKiroSession_DefaultPermissionHandler(t *testing.T) {
+	// When no PermissionHandler is provided, the default should be allow_once
+	mock := newMockKiroACPClient()
+
+	_, err := NewKiroSession(context.Background(), KiroSessionConfig{
+		SessionID:  "test-default-perm",
+		Query:      "test",
+		WorkingDir: "/tmp",
+		ACPClient:  mock,
+		// No PermissionHandler set
+	})
+	require.NoError(t, err)
+
+	// The default handler should return "allow_once"
+	result := mock.invokePermissionHandler(kirocli.PermissionRequest{
+		SessionID:  "kiro-session-123",
+		ToolCallID: "tc-1",
+		Title:      "Some operation",
+		Options: []kirocli.PermissionOption{
+			{OptionID: "allow_once", Name: "Yes"},
+			{OptionID: "deny", Name: "Deny"},
+		},
+	})
+	assert.Equal(t, "allow_once", result)
+}
+
+func TestKiroSession_SessionLoadResume(t *testing.T) {
+	mock := newMockKiroACPClient()
+
+	ctx := context.Background()
+	ks, err := NewKiroSession(ctx, KiroSessionConfig{
+		SessionID:       "test-resume",
+		Query:           "Continue working",
+		WorkingDir:      "/tmp",
+		ACPClient:       mock,
+		ResumeSessionID: "existing-session-456",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "existing-session-456", ks.GetID())
+
+	// Drain events
+	go func() {
+		for range ks.GetEvents() {
+		}
+	}()
+	_, _ = ks.Wait()
+}
+
+// Compile-time check that mockKiroACPClient satisfies KiroACPClient.
+var _ KiroACPClient = (*mockKiroACPClient)(nil)
 
 // Helper to suppress unused import warnings
 var _ = fmt.Sprintf
