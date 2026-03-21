@@ -117,6 +117,9 @@ type Session struct {
 	ProxyModelOverride string `db:"proxy_model_override"`
 	ProxyAPIKey        string `db:"proxy_api_key"`
 
+	// Provider indicates which backend was used ("claude" or "kiro")
+	Provider string `db:"provider"`
+
 	// Editor state for draft sessions (JSON blob)
 	EditorState *string `db:"editor_state"`
 }

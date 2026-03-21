@@ -379,6 +379,7 @@ func (h *SessionHandlers) HandleGetSessionState(ctx context.Context, params json
 		AutoAcceptEdits:            session.AutoAcceptEdits,
 		DangerouslySkipPermissions: session.DangerouslySkipPermissions,
 		Archived:                   session.Archived,
+		Provider:                   session.Provider,
 	}
 
 	// Set optional fields

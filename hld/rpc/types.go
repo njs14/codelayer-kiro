@@ -83,6 +83,7 @@ type SessionState struct {
 	DangerouslySkipPermissions          bool    `json:"dangerously_skip_permissions"`
 	DangerouslySkipPermissionsExpiresAt string  `json:"dangerously_skip_permissions_expires_at,omitempty"`
 	Archived                            bool    `json:"archived"`
+	Provider                            string  `json:"provider,omitempty"` // "claude" or "kiro"
 }
 
 // GetSessionStateResponse is the response for fetching session state
