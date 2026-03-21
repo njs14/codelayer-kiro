@@ -31,6 +31,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// jsonRPCResponse represents a JSON-RPC 2.0 response or notification.
+type jsonRPCResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      *int            `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
 // --- Helpers ---
 
 // buildMockBinary compiles the mock kiro-cli binary and returns the path.

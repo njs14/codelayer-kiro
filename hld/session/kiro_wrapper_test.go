@@ -175,6 +175,7 @@ func TestKiroSession_EventMapping(t *testing.T) {
 	}
 
 	// Start the update consumer
+	ks.consumerWg.Add(1)
 	go ks.consumeUpdates(sess)
 
 	// Test agent_message_chunk → assistant event
@@ -287,6 +288,7 @@ func TestKiroSession_MetadataTracking(t *testing.T) {
 	}
 
 	// Start metadata consumer
+	ks.consumerWg.Add(1)
 	go ks.consumeMetadata(sess)
 
 	sess.Metadata <- kirocli.MetadataUpdate{
@@ -470,6 +472,7 @@ func TestKiroSession_UnhandledUpdateType(t *testing.T) {
 	}
 
 	// Start the update consumer
+	ks.consumerWg.Add(1)
 	go ks.consumeUpdates(sess)
 
 	// Send an unrecognized update type — should not produce an event

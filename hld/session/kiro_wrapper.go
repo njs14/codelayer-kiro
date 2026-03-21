@@ -34,16 +34,17 @@ type KiroSession struct {
 	id              string // daemon session ID
 	kiroSessionID   string // Kiro's own session ID from session/new
 	client          KiroACPClient
+	kiroSess        *kirocli.Session // underlying kirocli session (for channel management)
 	events          chan claudecode.StreamEvent
 	done            chan struct{}
 	result          *claudecode.Result
 	promptDone      chan struct{} // closed when session/prompt returns
+	consumerWg      sync.WaitGroup // tracks consumeUpdates and consumeMetadata goroutines
 
 	mu              sync.RWMutex
 	err             error
 	contextPct      float64
 	credits         float64
-	eventsClosed    bool          // true after events channel is closed
 	promptTimeout   time.Duration // timeout for session/prompt call
 
 	// permissionHandler is called when Kiro requests permission.
@@ -125,7 +126,9 @@ func NewKiroSession(ctx context.Context, cfg KiroSessionConfig) (*KiroSession, e
 
 	// Start consuming kirocli.Session update and metadata channels
 	sess := cfg.ACPClient.GetSession(ks.kiroSessionID)
+	ks.kiroSess = sess
 	if sess != nil {
+		ks.consumerWg.Add(2)
 		go ks.consumeUpdates(sess)
 		go ks.consumeMetadata(sess)
 	}
@@ -179,10 +182,13 @@ func (ks *KiroSession) runPrompt(ctx context.Context, query string) {
 		}
 	}
 
-	// Mark events as closed, then close channels
-	ks.mu.Lock()
-	ks.eventsClosed = true
-	ks.mu.Unlock()
+	// Close the kirocli session channels to unblock consumeUpdates/consumeMetadata,
+	// then wait for them to finish before closing ks.events to avoid send-on-closed races.
+	if ks.kiroSess != nil {
+		close(ks.kiroSess.Updates)
+		close(ks.kiroSess.Metadata)
+	}
+	ks.consumerWg.Wait()
 	close(ks.events)
 	close(ks.done)
 }
@@ -190,6 +196,7 @@ func (ks *KiroSession) runPrompt(ctx context.Context, query string) {
 // consumeUpdates reads from the kirocli Session.Updates channel and converts
 // StreamUpdate notifications into Claude StreamEvents.
 func (ks *KiroSession) consumeUpdates(sess *kirocli.Session) {
+	defer ks.consumerWg.Done()
 	for update := range sess.Updates {
 		var event claudecode.StreamEvent
 		event.SessionID = update.SessionID
@@ -234,13 +241,6 @@ func (ks *KiroSession) consumeUpdates(sess *kirocli.Session) {
 			continue
 		}
 
-		// Non-blocking send; guard against closed channel
-		ks.mu.RLock()
-		closed := ks.eventsClosed
-		ks.mu.RUnlock()
-		if closed {
-			return
-		}
 		select {
 		case ks.events <- event:
 		default:
@@ -254,6 +254,7 @@ func (ks *KiroSession) consumeUpdates(sess *kirocli.Session) {
 // consumeMetadata reads from the kirocli Session.Metadata channel and tracks
 // context percentage and credits.
 func (ks *KiroSession) consumeMetadata(sess *kirocli.Session) {
+	defer ks.consumerWg.Done()
 	for m := range sess.Metadata {
 		ks.mu.Lock()
 		ks.contextPct = m.ContextUsagePercentage

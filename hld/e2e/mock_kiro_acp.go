@@ -25,18 +25,6 @@ type jsonRPCRequest struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-type jsonRPCResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
 // --- Mock ACP Server ---
 
 // MockACPScenario controls the behavior of the mock ACP server.
