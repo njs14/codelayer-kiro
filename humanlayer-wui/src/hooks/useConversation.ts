@@ -151,6 +151,25 @@ export interface FormattedMessage {
   }
 }
 
+/**
+ * Normalizes Kiro ACP event types to standard conversation event types.
+ * The daemon should already normalize these, but this provides client-side fallback.
+ */
+function normalizeKiroEventType(
+  eventType: string,
+): 'message' | 'tool_call' | 'tool_result' | undefined {
+  switch (eventType) {
+    case 'agent_message_chunk':
+      return 'message'
+    case 'tool_call':
+      return 'tool_call'
+    case 'tool_call_update':
+      return 'tool_result'
+    default:
+      return undefined
+  }
+}
+
 export function useFormattedConversation(
   sessionId?: string,
   claudeSessionId?: string,
@@ -163,7 +182,11 @@ export function useFormattedConversation(
       let content = event.content || ''
       let type: FormattedMessage['type'] = 'message'
 
-      if (event.eventType === 'tool_call') {
+      // Normalize Kiro event types as fallback (daemon should already normalize)
+      const effectiveEventType =
+        event.eventType || normalizeKiroEventType(event.eventType as string)
+
+      if (effectiveEventType === 'tool_call') {
         type = 'tool_call'
         content = `Calling ${event.toolName || 'tool'}`
         if (event.toolInputJson) {
@@ -174,7 +197,7 @@ export function useFormattedConversation(
             content += `: ${event.toolInputJson}`
           }
         }
-      } else if (event.eventType === 'tool_result') {
+      } else if (effectiveEventType === 'tool_result' || effectiveEventType === 'tool_call_update') {
         type = 'tool_result'
         content = event.toolResultContent || 'Tool completed'
       } else if (event.approvalStatus) {

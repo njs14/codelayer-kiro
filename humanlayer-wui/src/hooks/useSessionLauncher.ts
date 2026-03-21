@@ -13,7 +13,7 @@ import { POSTHOG_EVENTS } from '@/lib/telemetry/events'
 interface SessionConfig {
   title?: string
   workingDir: string
-  provider?: 'anthropic' | 'openrouter' | 'baseten'
+  provider?: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
   model?: string
   maxTurns?: number
   openRouterApiKey?: string
@@ -57,19 +57,23 @@ const MODEL_KEY = 'humanlayer-model'
 const OPENROUTER_MODEL_KEY = 'humanlayer-openrouter-model'
 const BASETEN_MODEL_KEY = 'humanlayer-baseten-model'
 
+const KIRO_MODEL_KEY = 'humanlayer-kiro-model'
+
 // Helper function to get saved provider
-const getSavedProvider = (): 'anthropic' | 'openrouter' | 'baseten' => {
+const getSavedProvider = (): 'anthropic' | 'openrouter' | 'baseten' | 'kiro' => {
   const stored = localStorage.getItem(PROVIDER_KEY)
-  if (stored === 'openrouter' || stored === 'baseten') {
+  if (stored === 'openrouter' || stored === 'baseten' || stored === 'kiro') {
     return stored
   }
   return 'anthropic' // Default to Anthropic
 }
 
 // Helper function to get saved model based on provider
-const getSavedModel = (provider: 'anthropic' | 'openrouter' | 'baseten'): string | undefined => {
+const getSavedModel = (provider: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'): string | undefined => {
   if (provider === 'anthropic') {
     return localStorage.getItem(MODEL_KEY) || undefined
+  } else if (provider === 'kiro') {
+    return localStorage.getItem(KIRO_MODEL_KEY) || 'auto'
   } else if (provider === 'openrouter') {
     return localStorage.getItem(OPENROUTER_MODEL_KEY) || undefined
   } else if (provider === 'baseten') {
@@ -190,11 +194,13 @@ export const useSessionLauncher = create<LauncherState>((set, get) => ({
       const modelKey =
         config.provider === 'anthropic'
           ? MODEL_KEY
-          : config.provider === 'openrouter'
-            ? OPENROUTER_MODEL_KEY
-            : config.provider === 'baseten'
-              ? BASETEN_MODEL_KEY
-              : null
+          : config.provider === 'kiro'
+            ? KIRO_MODEL_KEY
+            : config.provider === 'openrouter'
+              ? OPENROUTER_MODEL_KEY
+              : config.provider === 'baseten'
+                ? BASETEN_MODEL_KEY
+                : null
 
       if (modelKey) {
         if (config.model) {
@@ -314,7 +320,9 @@ export const useSessionLauncher = create<LauncherState>((set, get) => ({
         model: config.model || undefined,
         max_turns: config.maxTurns || undefined,
         // MCP config is now injected by daemon
-        permission_prompt_tool: 'mcp__codelayer__request_permission',
+        // Kiro uses native ACP permissions — skip MCP approval tool
+        permission_prompt_tool:
+          config.provider === 'kiro' ? undefined : 'mcp__codelayer__request_permission',
         // Add OpenRouter proxy configuration if provider is openrouter
         ...(config.provider === 'openrouter' && config.openRouterApiKey
           ? {

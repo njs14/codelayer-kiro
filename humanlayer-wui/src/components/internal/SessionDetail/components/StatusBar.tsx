@@ -1,13 +1,14 @@
 import { KeyboardShortcut } from '@/components/HotkeyPanel'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Session, SessionStatus } from '@/lib/daemon/types'
+import { Session, SessionStatus, type KiroMetadata } from '@/lib/daemon/types'
 import { getStatusTextClass } from '@/utils/component-utils'
 import { renderSessionStatus } from '@/utils/sessionStatus'
 import { Pencil } from 'lucide-react'
 import React, { useImperativeHandle, useState } from 'react'
 import { ModelSelector } from './ModelSelector'
 import { TokenUsageBadge } from './TokenUsageBadge'
+import { KiroMetadataBadge } from './KiroMetadataBadge'
 
 export interface StatusBarRef {
   openModelSelector: () => void
@@ -23,13 +24,14 @@ interface StatusBarProps {
     proxyEnabled: boolean
     proxyBaseUrl?: string
     proxyModelOverride?: string
-    provider: 'anthropic' | 'openrouter' | 'baseten'
+    provider: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
   }) => void
   statusOverride?: {
     text: string | React.ReactNode
     className?: string
     icon?: React.ReactNode
   }
+  kiroMetadata?: KiroMetadata | null
   ref?: React.Ref<StatusBarRef>
 }
 
@@ -40,6 +42,7 @@ export function StatusBar({
   model,
   onModelChange,
   statusOverride,
+  kiroMetadata,
   ref,
 }: StatusBarProps) {
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
@@ -138,6 +141,9 @@ export function StatusBar({
             : model || session.model || 'DEFAULT'
         }
       />
+
+      {/* Kiro Metadata (credits & context %) */}
+      {kiroMetadata && <KiroMetadataBadge metadata={kiroMetadata} />}
 
       {/* Model Selector Modal */}
       <ModelSelector

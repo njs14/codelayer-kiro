@@ -37,11 +37,16 @@ mcpCommand
 
 program
   .command('launch <query>')
-  .description('Launch a new Claude Code session via the daemon')
-  .option('-m, --model <model>', 'Model to use (opus, sonnet, or haiku)', 'sonnet')
+  .description('Launch a new coding session via the daemon')
+  .option(
+    '-p, --provider <provider>',
+    'Provider to use (claude or kiro)',
+    'claude',
+  )
+  .option('-m, --model <model>', 'Model to use (depends on provider)', 'sonnet')
   .option('-t, --title <title>', 'Optional session title')
   .option('-w, --working-dir <path>', 'Working directory for the session')
-  .option('--add-dir <directories...>', 'Additional directories Claude can access')
+  .option('--add-dir <directories...>', 'Additional directories the agent can access')
   .option('--max-turns <number>', 'Maximum number of turns', parseInt)
   .option('--no-approvals', 'Disable HumanLayer approvals for high-stakes operations')
   .option(

@@ -10,6 +10,15 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 type ModelType = 'haiku' | 'sonnet' | 'opus'
+type KiroModelType =
+  | 'auto'
+  | 'claude-opus4.6'
+  | 'claude-sonnet4.6'
+  | 'claude-sonnet4.5'
+  | 'minimax-2.5'
+  | 'minimax-2.1'
+  | 'qwen3-coder-next'
+  | 'deepseek-3.2'
 
 interface InitOptions {
   force?: boolean

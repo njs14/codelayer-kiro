@@ -88,9 +88,11 @@ interface LaunchSessionRequest {
   query: string
   title?: string
   model?: string
+  provider?: 'claude' | 'kiro'
   mcp_config?: unknown
   permission_prompt_tool?: string
   working_dir?: string
+  additional_directories?: string[]
   max_turns?: number
   system_prompt?: string
   append_system_prompt?: string

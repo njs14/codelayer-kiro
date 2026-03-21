@@ -30,11 +30,39 @@ export type { ConversationEvent } from '@humanlayer/hld-sdk'
 export type SessionSnapshot = FileSnapshotInfo // Components expect snake_case
 export type HealthCheckResponse = HealthResponse
 
+// Provider types
+export type ProviderType = 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
+
+// Kiro model definitions with credit multipliers
+export interface KiroModelInfo {
+  value: string
+  label: string
+  multiplier: number
+  group: 'anthropic' | 'minimax' | 'qwen' | 'deepseek' | 'auto'
+}
+
+export const KIRO_MODELS: KiroModelInfo[] = [
+  { value: 'auto', label: 'Auto', multiplier: 1.0, group: 'auto' },
+  { value: 'claude-opus4.6', label: 'Claude Opus 4.6', multiplier: 2.2, group: 'anthropic' },
+  { value: 'claude-sonnet4.6', label: 'Claude Sonnet 4.6', multiplier: 1.3, group: 'anthropic' },
+  { value: 'claude-sonnet4.5', label: 'Claude Sonnet 4.5', multiplier: 1.3, group: 'anthropic' },
+  { value: 'minimax-2.5', label: 'MiniMax 2.5', multiplier: 0.25, group: 'minimax' },
+  { value: 'minimax-2.1', label: 'MiniMax 2.1', multiplier: 0.25, group: 'minimax' },
+  { value: 'qwen3-coder-next', label: 'Qwen3 Coder Next', multiplier: 0.05, group: 'qwen' },
+  { value: 'deepseek-3.2', label: 'DeepSeek 3.2', multiplier: 0.05, group: 'deepseek' },
+]
+
+// Kiro-specific metadata from _kiro.dev/metadata notifications
+export interface KiroMetadata {
+  contextUsagePercentage: number
+  credits: number
+}
+
 // Define client-specific types not in SDK
 export interface LaunchSessionParams {
   query: string
   title?: string
-  provider?: 'anthropic' | 'openrouter' | 'baseten'
+  provider?: ProviderType
   model?: string
   workingDir?: string
   mcpConfig?: any
@@ -186,6 +214,10 @@ export enum ConversationEventType {
   ToolResult = 'tool_result',
   System = 'system',
   Thinking = 'thinking',
+  // Kiro ACP event types (normalized by daemon to standard types above,
+  // but kept here for reference and direct handling if needed)
+  AgentMessageChunk = 'agent_message_chunk',
+  ToolCallUpdate = 'tool_call_update',
 }
 
 export enum ConversationRole {
@@ -204,7 +236,7 @@ export enum ViewMode {
 export interface LaunchSessionRequest {
   query: string
   title?: string
-  provider?: 'anthropic' | 'openrouter' | 'baseten'
+  provider?: ProviderType
   model?: string
   mcp_config?: any
   permission_prompt_tool?: string
@@ -457,6 +489,9 @@ export interface ConfigStatus {
   }
   baseten: {
     api_key_configured: boolean
+  }
+  kiro?: {
+    cli_available: boolean
   }
 }
 
