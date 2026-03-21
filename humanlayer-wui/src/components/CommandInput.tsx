@@ -18,7 +18,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 interface SessionConfig {
   title?: string
   workingDir: string
-  provider?: 'anthropic' | 'openrouter' | 'baseten'
+  provider?: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
   model?: string
   maxTurns?: number
   openRouterApiKey?: string
@@ -146,12 +146,14 @@ export default function CommandInput({
             <Select
               value={config.provider || 'anthropic'}
               onValueChange={value => {
-                const newProvider = value as 'anthropic' | 'openrouter' | 'baseten'
+                const newProvider = value as 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
 
                 // Get the saved model for this provider
                 let savedModel: string | undefined
                 if (newProvider === 'anthropic') {
                   savedModel = localStorage.getItem('humanlayer-model') || undefined
+                } else if (newProvider === 'kiro') {
+                  savedModel = localStorage.getItem('humanlayer-kiro-model') || 'auto'
                 } else if (newProvider === 'openrouter') {
                   savedModel = localStorage.getItem('humanlayer-openrouter-model') || undefined
                 } else if (newProvider === 'baseten') {
@@ -169,7 +171,8 @@ export default function CommandInput({
                 <SelectValue placeholder="Select provider" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
+                <SelectItem value="anthropic">Claude Code (Anthropic)</SelectItem>
+                <SelectItem value="kiro">Kiro</SelectItem>
                 <SelectItem value="openrouter">OpenRouter</SelectItem>
                 <SelectItem value="baseten">Baseten</SelectItem>
               </SelectContent>
@@ -180,7 +183,27 @@ export default function CommandInput({
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Model</label>
 
-            {config.provider === 'openrouter' ? (
+            {config.provider === 'kiro' ? (
+              // Dropdown for Kiro models with credit multipliers
+              <Select
+                value={config.model || 'auto'}
+                onValueChange={value => updateConfig({ model: value || undefined })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Auto" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (1.0x)</SelectItem>
+                  <SelectItem value="claude-opus4.6">Claude Opus 4.6 (2.2x)</SelectItem>
+                  <SelectItem value="claude-sonnet4.6">Claude Sonnet 4.6 (1.3x)</SelectItem>
+                  <SelectItem value="claude-sonnet4.5">Claude Sonnet 4.5 (1.3x)</SelectItem>
+                  <SelectItem value="minimax-2.5">MiniMax 2.5 (0.25x)</SelectItem>
+                  <SelectItem value="minimax-2.1">MiniMax 2.1 (0.25x)</SelectItem>
+                  <SelectItem value="qwen3-coder-next">Qwen3 Coder Next (0.05x)</SelectItem>
+                  <SelectItem value="deepseek-3.2">DeepSeek 3.2 (0.05x)</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : config.provider === 'openrouter' ? (
               // Text input for OpenRouter models
               <Input
                 type="text"

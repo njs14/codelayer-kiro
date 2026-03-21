@@ -11,12 +11,20 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { HOTKEY_SCOPES } from '@/hooks/hotkeys/scopes'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { usePostHogTracking } from '@/hooks/usePostHogTracking'
 import { daemonClient } from '@/lib/daemon'
-import { ConfigStatus, Session } from '@/lib/daemon/types'
+import { ConfigStatus, KIRO_MODELS, Session, type ProviderType } from '@/lib/daemon/types'
 import { POSTHOG_EVENTS } from '@/lib/telemetry/events'
 import { AlertCircle, CheckCircle, Eye, EyeOff, GitBranch, Pencil } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -30,7 +38,7 @@ interface ModelSelectorProps {
     proxyEnabled: boolean
     proxyBaseUrl?: string
     proxyModelOverride?: string
-    provider: 'anthropic' | 'openrouter' | 'baseten'
+    provider: ProviderType
   }) => void
   className?: string
   open?: boolean
@@ -55,30 +63,54 @@ function ModelSelectorContent({
       // Determine provider based on proxy base URL
       if (session.proxyBaseUrl && session.proxyBaseUrl.includes('baseten.co')) {
         return {
-          provider: 'baseten' as const,
+          provider: 'baseten' as ProviderType,
           model: session.proxyModelOverride,
         }
       } else {
         return {
-          provider: 'openrouter' as const,
+          provider: 'openrouter' as ProviderType,
           model: session.proxyModelOverride,
         }
       }
     }
 
+    // Check if Kiro model
+    const kiroModel = KIRO_MODELS.find(m => m.value === session.model)
+    if (kiroModel) {
+      return {
+        provider: 'kiro' as ProviderType,
+        model: session.model || 'auto',
+      }
+    }
+
+    // Check localStorage for persisted Kiro provider preference
+    const lastProvider = localStorage.getItem('draft-last-provider')
+    if (lastProvider === 'kiro') {
+      return {
+        provider: 'kiro' as ProviderType,
+        model: session.model || 'auto',
+      }
+    }
+
     // Otherwise using Anthropic
     return {
-      provider: 'anthropic' as const,
+      provider: 'anthropic' as ProviderType,
       model: session.model || 'default',
     }
   }
 
   const initial = getProviderAndModel()
-  const [provider, setProvider] = useState<'anthropic' | 'openrouter' | 'baseten'>(initial.provider)
+  const [provider, setProvider] = useState<ProviderType>(initial.provider)
   const [model, setModel] = useState(
-    initial.provider === 'anthropic' ? initial.model || 'default' : 'default',
+    initial.provider === 'anthropic'
+      ? initial.model || 'default'
+      : initial.provider === 'kiro'
+        ? initial.model || 'auto'
+        : 'default',
   )
-  const [customModel, setCustomModel] = useState(initial.provider === 'openrouter' ? initial.model : '')
+  const [customModel, setCustomModel] = useState(
+    initial.provider === 'openrouter' || initial.provider === 'baseten' ? initial.model : '',
+  )
   const [isUpdating, setIsUpdating] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
@@ -104,6 +136,9 @@ function ModelSelectorContent({
     setProvider(current.provider)
     if (current.provider === 'anthropic') {
       setModel(current.model || 'default')
+      setCustomModel('')
+    } else if (current.provider === 'kiro') {
+      setModel(current.model || 'auto')
       setCustomModel('')
     } else {
       setModel('default')
@@ -133,13 +168,16 @@ function ModelSelectorContent({
     }
   }, [provider])
 
-  const handleProviderChange = (newProvider: 'anthropic' | 'openrouter' | 'baseten') => {
+  const handleProviderChange = (newProvider: ProviderType) => {
     setProvider(newProvider)
     setHasChanges(true)
 
     // Clear model when switching providers
     if (newProvider === 'anthropic') {
       setModel('default')
+      setCustomModel('')
+    } else if (newProvider === 'kiro') {
+      setModel('auto')
       setCustomModel('')
     } else {
       setCustomModel('')
@@ -174,6 +212,10 @@ function ModelSelectorContent({
   const canApplyBaseten =
     provider !== 'baseten' || (configStatus?.baseten?.api_key_configured ?? false) || apiKey.length > 0
 
+  // Get credit multiplier for the selected Kiro model
+  const selectedKiroModel = KIRO_MODELS.find(m => m.value === model)
+  const creditMultiplier = selectedKiroModel?.multiplier
+
   const handleApply = async () => {
     if ((provider === 'openrouter' || provider === 'baseten') && !customModel.trim()) {
       toast.error(`Model name is required for ${provider === 'baseten' ? 'Baseten' : 'OpenRouter'}`)
@@ -203,6 +245,15 @@ function ModelSelectorContent({
       if (provider === 'anthropic') {
         modelValue = model === 'default' ? '' : model
         // Clear proxy configuration when switching to Anthropic
+        proxyConfig = {
+          proxyEnabled: false,
+          proxyBaseUrl: undefined,
+          proxyModelOverride: undefined,
+          proxyApiKey: undefined,
+        }
+      } else if (provider === 'kiro') {
+        // For Kiro, model is set directly (no proxy needed — daemon handles Kiro ACP)
+        modelValue = model === 'auto' ? '' : model
         proxyConfig = {
           proxyEnabled: false,
           proxyBaseUrl: undefined,
@@ -250,7 +301,7 @@ function ModelSelectorContent({
       if (onModelChange) {
         onModelChange({
           model: modelValue || undefined,
-          proxyEnabled: provider !== 'anthropic',
+          proxyEnabled: provider === 'openrouter' || provider === 'baseten',
           proxyBaseUrl: proxyConfig.proxyBaseUrl,
           proxyModelOverride: proxyConfig.proxyModelOverride,
           provider: provider,
@@ -258,7 +309,10 @@ function ModelSelectorContent({
       }
 
       // Track model selection event
-      const newModel = provider === 'anthropic' ? modelValue || 'default' : customModel
+      const newModel =
+        provider === 'anthropic' || provider === 'kiro'
+          ? modelValue || (provider === 'kiro' ? 'auto' : 'default')
+          : customModel
       trackEvent(POSTHOG_EVENTS.MODEL_SELECTED, {
         model: newModel,
         provider: provider,
@@ -277,8 +331,6 @@ function ModelSelectorContent({
 
       setHasChanges(false)
       setShowApiKeyInput(false)
-      // Don't clear the API key from state - keep it for display
-      // setApiKey('') // Clear API key from state after saving
 
       // Refresh the session data to update the status bar (only if session exists)
       if (session.id) {
@@ -306,7 +358,7 @@ function ModelSelectorContent({
         !isUpdating &&
         (provider !== 'openrouter' || canApplyOpenRouter) &&
         (provider !== 'baseten' || canApplyBaseten) &&
-        (provider === 'anthropic' || customModel.trim())
+        (provider === 'anthropic' || provider === 'kiro' || customModel.trim())
       ) {
         handleApply()
       }
@@ -329,33 +381,63 @@ function ModelSelectorContent({
       </DialogHeader>
 
       <div className="mt-6 space-y-4">
-        {/* Provider Selection */}
-        {isAdvancedProvidersEnabled && (
-          <div className="space-y-2">
-            <Label htmlFor="provider">Provider</Label>
-            <Select
-              value={provider}
-              onValueChange={value =>
-                handleProviderChange(value as 'anthropic' | 'openrouter' | 'baseten')
-              }
-              disabled={isUpdating}
-            >
-              <SelectTrigger id="provider" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-                <SelectItem value="openrouter">OpenRouter</SelectItem>
-                <SelectItem value="baseten">Baseten</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {/* Provider Selection — always show since Kiro is a primary option */}
+        <div className="space-y-2">
+          <Label htmlFor="provider">Provider</Label>
+          <Select
+            value={provider}
+            onValueChange={value => handleProviderChange(value as ProviderType)}
+            disabled={isUpdating}
+          >
+            <SelectTrigger id="provider" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="anthropic">Claude Code (Anthropic)</SelectItem>
+              <SelectItem value="kiro">Kiro</SelectItem>
+              {isAdvancedProvidersEnabled && (
+                <>
+                  <SelectItem value="openrouter">OpenRouter</SelectItem>
+                  <SelectItem value="baseten">Baseten</SelectItem>
+                </>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Model Selection */}
         <div className="space-y-2">
           <Label htmlFor="model">Model</Label>
-          {provider === 'openrouter' ? (
+          {provider === 'kiro' ? (
+            // Kiro models — grouped by provider with credit multipliers
+            <Select value={model || 'auto'} onValueChange={handleModelChange} disabled={isUpdating}>
+              <SelectTrigger id="model" className="w-full">
+                <SelectValue placeholder="Auto" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>General</SelectLabel>
+                  <SelectItem value="auto">Auto (1.0x credits)</SelectItem>
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Anthropic</SelectLabel>
+                  <SelectItem value="claude-opus4.6">Claude Opus 4.6 (2.2x)</SelectItem>
+                  <SelectItem value="claude-sonnet4.6">Claude Sonnet 4.6 (1.3x)</SelectItem>
+                  <SelectItem value="claude-sonnet4.5">Claude Sonnet 4.5 (1.3x)</SelectItem>
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>MiniMax</SelectLabel>
+                  <SelectItem value="minimax-2.5">MiniMax 2.5 (0.25x)</SelectItem>
+                  <SelectItem value="minimax-2.1">MiniMax 2.1 (0.25x)</SelectItem>
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Open Source</SelectLabel>
+                  <SelectItem value="qwen3-coder-next">Qwen3 Coder Next (0.05x)</SelectItem>
+                  <SelectItem value="deepseek-3.2">DeepSeek 3.2 (0.05x)</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : provider === 'openrouter' ? (
             <Input
               id="model"
               type="text"
@@ -401,6 +483,16 @@ function ModelSelectorContent({
             </Select>
           )}
         </div>
+
+        {/* Credit multiplier info for Kiro */}
+        {provider === 'kiro' && creditMultiplier !== undefined && (
+          <div className="text-muted-foreground text-xs">
+            <p>
+              Credit multiplier: <strong>{creditMultiplier}x</strong> — Kiro handles permissions
+              natively via ACP
+            </p>
+          </div>
+        )}
 
         {/* Help Text */}
         {provider === 'anthropic' && isAdvancedProvidersEnabled && (

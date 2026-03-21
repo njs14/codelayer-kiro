@@ -15,6 +15,9 @@ export enum ToolName {
   LS = 'LS',
   WebSearch = 'WebSearch',
   WebFetch = 'WebFetch',
+  // Kiro ACP tool types (normalized from session/update notifications)
+  KiroToolCall = 'kiro_tool_call',
+  KiroToolCallUpdate = 'kiro_tool_call_update',
   // Add more as needed
 }
 

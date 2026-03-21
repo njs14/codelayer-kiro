@@ -31,7 +31,7 @@ interface DraftLauncherInputProps {
     proxyEnabled: boolean
     proxyBaseUrl?: string
     proxyModelOverride?: string
-    provider: 'anthropic' | 'openrouter' | 'baseten'
+    provider: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
   }) => void
   onToggleAutoAccept: () => void
   onToggleBypass: () => void

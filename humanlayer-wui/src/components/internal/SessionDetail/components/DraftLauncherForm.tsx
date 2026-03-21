@@ -157,7 +157,13 @@ export const DraftLauncherForm: React.FC<DraftLauncherFormProps> = ({ session, o
       lastUsedProxyBaseUrlLoaded &&
       lastUsedModelLoaded
     ) {
-      if (lastUsedProvider === 'anthropic' && lastUsedModel) {
+      if (lastUsedProvider === 'kiro') {
+        setModel(lastUsedModel || 'auto')
+        setProvider('kiro' as any)
+        setProxyEnabled(false)
+        setProxyBaseUrl(null)
+        setProxyModelOverride(null)
+      } else if (lastUsedProvider === 'anthropic' && lastUsedModel) {
         setModel(lastUsedModel)
         setProvider('anthropic')
         setProxyEnabled(false)
@@ -398,19 +404,24 @@ export const DraftLauncherForm: React.FC<DraftLauncherFormProps> = ({ session, o
       proxyEnabled: boolean
       proxyBaseUrl?: string
       proxyModelOverride?: string
-      provider: 'anthropic' | 'openrouter' | 'baseten'
+      provider: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
     }) => {
       // Update local state with new configuration
       setModel(config.model || '')
       setProxyEnabled(config.proxyEnabled)
       setProxyBaseUrl(config.proxyBaseUrl || null)
       setProxyModelOverride(config.proxyModelOverride || null)
-      setProvider(config.provider)
+      setProvider(config.provider as any)
 
       // Save current configuration to localStorage for next draft
       if (config.provider === 'anthropic') {
         setLastUsedProvider('anthropic')
         setLastUsedModel(config.model || '')
+        setLastUsedProxyModel('')
+        setLastUsedProxyBaseUrl('')
+      } else if (config.provider === 'kiro') {
+        setLastUsedProvider('kiro')
+        setLastUsedModel(config.model || 'auto')
         setLastUsedProxyModel('')
         setLastUsedProxyBaseUrl('')
       } else if (config.provider === 'openrouter') {

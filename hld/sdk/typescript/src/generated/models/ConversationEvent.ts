@@ -130,6 +130,7 @@ export interface ConversationEvent {
 export const ConversationEventEventTypeEnum = {
     Message: 'message',
     ToolCall: 'tool_call',
+    ToolCallUpdate: 'tool_call_update',
     ToolResult: 'tool_result',
     System: 'system',
     Thinking: 'thinking'
