@@ -17,7 +17,7 @@ graph LR
 
     subgraph "Backend"
         HLD[HumanLayer Daemon<br/>hld]
-        CC[Claude Code<br/>Sessions]
+        Providers[Claude / Kiro / Proxy-backed<br/>Sessions]
     end
 
     RC -->|"uses"| RH
@@ -25,7 +25,7 @@ graph LR
     DC -->|"invoke"| TC
     TC -->|"calls"| RDC
     RDC -->|"Unix Socket<br/>JSON-RPC"| HLD
-    HLD -->|"manages"| CC
+    HLD -->|"manages"| Providers
 ```
 
 ## Data Flow Example: Approving a Function Call
@@ -122,7 +122,7 @@ The daemon uses JSON-RPC 2.0 over Unix domain sockets. See [hld/PROTOCOL.md](../
 
 Key RPC methods:
 
-- `launchSession` - Start a new Claude Code session
+- `launchSession` - Start a new daemon-managed session
 - `listSessions` - Get all sessions
 - `fetchApprovals` - Get pending approvals
 - `sendDecision` - Approve/deny/respond to approvals

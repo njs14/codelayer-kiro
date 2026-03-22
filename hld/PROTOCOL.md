@@ -2,7 +2,7 @@
 
 ## Overview
 
-The HumanLayer Daemon (HLD) uses a JSON-RPC 2.0 protocol over Unix domain sockets for communication. The daemon provides session management, approval handling, and event subscription capabilities for Claude Code interactions.
+The HumanLayer Daemon (HLD) uses a JSON-RPC 2.0 protocol over Unix domain sockets for communication. The daemon provides session management, approval handling, and event subscription capabilities for locally managed coding-agent sessions.
 
 ## Transport Layer
 
@@ -89,6 +89,7 @@ Standard JSON-RPC 2.0 error codes:
 ```json
 {
   "query": "string (required)",
+  "provider": "string (optional: 'claude' or 'kiro')",
   "model": "string (optional: 'opus' or 'sonnet')",
   "mcp_config": {
     // MCPConfig object (optional)
@@ -139,7 +140,7 @@ Standard JSON-RPC 2.0 error codes:
       "model": "string (optional)",
       "working_dir": "string (optional)",
       "result": {
-        // Claude Code Result object (optional)
+        // Provider result payload (Claude-backed sessions populate the Claude result shape)
       }
     }
   ]

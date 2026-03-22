@@ -24,16 +24,16 @@ This is a monorepo containing two distinct but interconnected project groups:
 ## Project 2: Local Tools Suite
 
 ### Components
-- `hld/` - Go daemon that coordinates approvals and manages Claude Code sessions
-- `hlyr/` - TypeScript CLI with MCP (Model Context Protocol) server for Claude integration
+- `hld/` - Go daemon that coordinates approvals and manages local coding-agent sessions
+- `hlyr/` - TypeScript CLI with launch, thoughts, config, and Claude MCP helper commands
 - `humanlayer-wui/` - CodeLayer - Desktop/Web UI (Tauri + React) for graphical approval management
 - `claudecode-go/` - Go SDK for programmatically launching Claude Code sessions
 
 ### Architecture Flow
 ```
-Claude Code → MCP Protocol → hlyr → JSON-RPC → hld → HumanLayer Cloud API
-                                         ↑         ↑
-                                    TUI ─┘         └─ WUI
+Claude Code / Kiro CLI → hlyr / ACP bridge → JSON-RPC → hld → HumanLayer Cloud API
+                                                  ↑         ↑
+                                             CLI ─┘         └─ WUI
 ```
 
 ## Development Commands

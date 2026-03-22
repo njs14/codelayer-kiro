@@ -173,5 +173,5 @@ export const SentryErrorBoundary = Sentry.withErrorBoundary(SentryErrorBoundaryC
   showDialog: false, // We handle UI ourselves
 })
 
-// Keep ErrorBoundary export for backwards compatibility (will be removed later)
+// Keep ErrorBoundary as the default export name used by the app shell.
 export const ErrorBoundary = SentryErrorBoundary

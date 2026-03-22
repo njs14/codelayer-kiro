@@ -206,7 +206,7 @@ export interface SessionsApiInterface {
     continueSession(requestParameters: ContinueSessionOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ContinueSessionResponse>;
 
     /**
-     * Create and start a new Claude Code session
+     * Create and start a new daemon-managed coding session
      * @summary Launch a new session
      * @param {CreateSessionRequest} createSessionRequest 
      * @param {*} [options] Override http request option.
@@ -216,7 +216,7 @@ export interface SessionsApiInterface {
     createSessionRaw(requestParameters: CreateSessionOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<CreateSessionResponse>>;
 
     /**
-     * Create and start a new Claude Code session
+     * Create and start a new daemon-managed coding session
      * Launch a new session
      */
     createSession(requestParameters: CreateSessionOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<CreateSessionResponse>;
@@ -557,7 +557,7 @@ export class SessionsApi extends runtime.BaseAPI implements SessionsApiInterface
     }
 
     /**
-     * Create and start a new Claude Code session
+     * Create and start a new daemon-managed coding session
      * Launch a new session
      */
     async createSessionRaw(requestParameters: CreateSessionOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<CreateSessionResponse>> {
@@ -589,7 +589,7 @@ export class SessionsApi extends runtime.BaseAPI implements SessionsApiInterface
     }
 
     /**
-     * Create and start a new Claude Code session
+     * Create and start a new daemon-managed coding session
      * Launch a new session
      */
     async createSession(requestParameters: CreateSessionOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<CreateSessionResponse> {

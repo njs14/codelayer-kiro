@@ -992,7 +992,6 @@ export function ActiveSession({ session, onClose }: ActiveSessionProps) {
                   .filter(e => e.eventType === 'message' && e.role === 'user').length
               : undefined
           }
-          forkTokenCount={forkPreviewData?.tokenCount}
           className="mt-2"
           onToggleAutoAccept={handleToggleAutoAccept}
           onToggleBypass={handleToggleDangerouslySkipPermissions}

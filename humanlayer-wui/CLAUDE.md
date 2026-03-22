@@ -1,6 +1,6 @@
 This is the HumanLayer Web UI (WUI) - a desktop application for managing AI agent approvals and sessions.
 
-The WUI connects to the HumanLayer daemon (hld) to provide a graphical interface for monitoring Claude Code sessions and responding to approval requests. It's built with Tauri for desktop packaging and React for the interface.
+The WUI connects to the HumanLayer daemon (hld) to provide a graphical interface for monitoring local coding-agent sessions and responding to approval requests. It's built with Tauri for desktop packaging and React for the interface.
 
 When the WUI is running, logs are written to:
 

@@ -136,7 +136,7 @@ paths:
     post:
       operationId: createSession
       summary: Launch a new session
-      description: Create and start a new Claude Code session
+      description: Create and start a new daemon-managed coding session
       tags:
         - Sessions
       requestBody:

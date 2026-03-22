@@ -16,7 +16,6 @@ interface SessionModeIndicatorProps {
   sessionStatus?: SessionStatus
   isForkMode?: boolean
   forkTurnNumber?: number
-  forkTokenCount?: number | null // Keep for compatibility, but not used
   className?: string
   onToggleAutoAccept?: () => void
   onToggleBypass?: () => void
@@ -170,5 +169,4 @@ export const SessionModeIndicator: FC<SessionModeIndicatorProps> = ({
   )
 }
 
-// Export with backward compatibility
 export const AutoAcceptIndicator = SessionModeIndicator
