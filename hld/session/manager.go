@@ -20,7 +20,7 @@ import (
 	kirocli "github.com/humanlayer/humanlayer/kirocli-go"
 )
 
-// Manager handles the lifecycle of Claude Code sessions
+// Manager handles the lifecycle of coding-agent sessions launched through the daemon.
 type Manager struct {
 	activeProcesses    map[string]ClaudeSession // Maps session ID to active Claude process
 	mu                 sync.RWMutex
@@ -36,11 +36,11 @@ type Manager struct {
 	httpPort           int      // HTTP server port for proxy endpoint
 
 	// Kiro backend support
-	provider       string     // "claude" or "kiro"
+	provider       string          // "claude" or "kiro"
 	kiroClient     *kirocli.Client // Shared ACP client for Kiro sessions (nil if not configured)
-	kiroClientErr  error      // Store Kiro initialization error
-	kiroPath       string     // Configured kiro-cli path
-	kiroWorkingDir string     // Default working directory for Kiro sessions
+	kiroClientErr  error           // Store Kiro initialization error
+	kiroPath       string          // Configured kiro-cli path
+	kiroWorkingDir string          // Default working directory for Kiro sessions
 }
 
 // Compile-time check that Manager implements SessionManager
@@ -252,8 +252,7 @@ func (m *Manager) isKiroProvider() bool {
 	return m.provider == hldconfig.ProviderKiro
 }
 
-// LaunchSession starts a new Claude Code session
-// TODO(0): Consider whether we need to support non-draft session creation directly in daemon post-implementation
+// LaunchSession starts a new coding-agent session.
 func (m *Manager) LaunchSession(ctx context.Context, config LaunchSessionConfig, isDraft bool) (*Session, error) {
 	if m.isKiroProvider() {
 		return m.launchKiroSession(ctx, config, isDraft)

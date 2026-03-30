@@ -102,7 +102,7 @@ export interface DebugInfo {
   last_modified?: string
 }
 
-// Client interface using legacy types for backward compatibility
+// Client interface used by the WUI while it bridges SDK-native and socket-native payload shapes
 export interface DaemonClient {
   connect(): Promise<void>
   reconnect(): Promise<void>
@@ -203,7 +203,7 @@ export interface DaemonClient {
   discoverAgents(workingDir: string): Promise<Agent[]>
 }
 
-// Legacy enums and types for backward compatibility (to be gradually removed)
+// Compatibility enums and request types still used within the WUI
 export enum Decision {
   Approve = 'approve',
   Deny = 'deny',
@@ -315,9 +315,6 @@ export interface FetchApprovalsResponse {
 export interface NewApprovalEventData extends ApprovalEventData {
   // Uses the ApprovalEventData fields
 }
-
-// Alias for backwards compatibility (to be removed)
-export type ApprovalRequestedEventData = NewApprovalEventData
 
 export interface ApprovalResolvedEventData {
   approval_id: string // was call_id

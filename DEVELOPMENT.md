@@ -4,7 +4,7 @@ This guide covers development workflows and tools for the HumanLayer repository.
 
 ## Parallel Development Environments
 
-> **Why parallel environments?** When developing daemon (hld) or WUI features, restarting the daemon breaks active Claude sessions. This feature lets you maintain a stable "nightly" environment for regular work while testing changes in an isolated "dev" environment.
+> **Why parallel environments?** When developing daemon (hld) or WUI features, restarting the daemon breaks active coding sessions. This feature lets you maintain a stable "nightly" environment for regular work while testing changes in an isolated "dev" environment.
 
 ### How It Works
 
@@ -21,7 +21,7 @@ This guide covers development workflows and tools for the HumanLayer repository.
 ```
 
 The development setup provides complete isolation between environments, allowing you to:
-- Keep Claude sessions running in "nightly" while developing in "dev"
+- Keep active sessions running in "nightly" while developing in "dev"
 - Test breaking changes without fear
 - Maintain different database states for testing
 
@@ -36,7 +36,7 @@ make wui-nightly
 make daemon-dev
 make wui-dev
 
-# Launch Claude Code with specific daemon
+# Launch a session against the dev daemon
 npx humanlayer launch "implement feature X" --daemon-socket ~/.humanlayer/daemon-dev.sock
 ```
 
@@ -77,9 +77,9 @@ make cleanup-dev        # Clean up dev DBs and logs older than 10 days
 make dev-status         # Show current dev environment status
 ```
 
-### Claude Code Integration
+### Session launch integration
 
-MCP servers launched by Claude Code sessions automatically connect to the correct daemon instance. The daemon passes the `HUMANLAYER_DAEMON_SOCKET` environment variable to MCP servers, ensuring they connect to the same daemon that launched them.
+Claude-backed sessions automatically connect their MCP approval server to the correct daemon instance. The daemon passes the `HUMANLAYER_DAEMON_SOCKET` environment variable to the helper process so it reconnects to the same daemon that launched the session.
 
 The `npx humanlayer launch` command supports custom daemon sockets through multiple methods:
 
@@ -108,7 +108,7 @@ Add to your `humanlayer.json`:
    make daemon-nightly  # Runs in background
    make wui-nightly     # Opens installed WUI
    ```
-   This is your "production" environment for regular Claude work.
+   This is your "production" environment for regular session work.
 
 2. **Development time - Work on daemon/WUI features**:
    ```bash
@@ -121,13 +121,13 @@ Add to your `humanlayer.json`:
    # Terminal 1: Start dev daemon (auto-copies current DB)
    make daemon-dev
 
-   # Terminal 2: Test with Claude Code using dev daemon
+   # Terminal 2: Test a launch against the dev daemon
    npx humanlayer launch "test my feature" --daemon-socket ~/.humanlayer/daemon-dev.sock
 
    # Or test with dev WUI
    make wui-dev
    ```
-   Your nightly Claude sessions remain unaffected!
+   Your nightly sessions remain unaffected!
 
 4. **Maintenance - Clean up old dev artifacts** (weekly):
    ```bash
@@ -147,7 +147,7 @@ Add to your `humanlayer.json`:
 Both daemon and WUI respect these environment variables:
 
 - `HUMANLAYER_DAEMON_SOCKET`: Path to daemon socket (default: `~/.humanlayer/daemon.sock`)
-  - This variable is automatically passed to MCP servers launched by Claude Code sessions
+  - This variable is automatically passed to Claude approval helper processes launched by the daemon
 - `HUMANLAYER_DATABASE_PATH`: Path to SQLite database (daemon only)
 - `HUMANLAYER_DAEMON_VERSION_OVERRIDE`: Custom version string (daemon only)
 

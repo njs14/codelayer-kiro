@@ -12,7 +12,7 @@ type Client interface {
 	// Health checks if the daemon is healthy
 	Health() error
 
-	// LaunchSession launches a new Claude Code session
+	// LaunchSession launches a new daemon-managed coding session
 	LaunchSession(req rpc.LaunchSessionRequest) (*rpc.LaunchSessionResponse, error)
 
 	// ListSessions lists all active sessions

@@ -28,7 +28,7 @@ const (
 	StatusDiscarded    Status = "discarded"     // Draft session was discarded by the user
 )
 
-// Session represents a Claude Code session managed by the daemon
+// Session represents a coding-agent session managed by the daemon.
 type Session struct {
 	ID        string                   `json:"id"`
 	RunID     string                   `json:"run_id"`
@@ -73,7 +73,7 @@ type Info struct {
 // LaunchSessionConfig contains the configuration for launching a new session
 type LaunchSessionConfig struct {
 	claudecode.SessionConfig
-	// Daemon-level settings that don't get passed to Claude Code
+	// Daemon-level settings that don't get passed through to the provider client
 	Title                             string // Session title (optional)
 	AutoAcceptEdits                   bool   // Auto-accept edit tools
 	DangerouslySkipPermissions        bool   // Whether to auto-approve all tools
@@ -115,9 +115,9 @@ func (e *DirectoryNotFoundError) Error() string {
 	return e.Message
 }
 
-// SessionManager defines the interface for managing Claude Code sessions
+// SessionManager defines the interface for managing daemon-managed coding sessions.
 type SessionManager interface {
-	// LaunchSession starts a new Claude Code session
+	// LaunchSession starts a new coding-agent session
 	LaunchSession(ctx context.Context, config LaunchSessionConfig, isDraft bool) (*Session, error)
 
 	// ContinueSession resumes an existing completed session with a new query and optional config overrides

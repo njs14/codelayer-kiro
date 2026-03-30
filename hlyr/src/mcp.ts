@@ -54,7 +54,7 @@ export async function startClaudeApprovalsMCPServer() {
           properties: {
             tool_name: { type: 'string' },
             input: { type: 'object' },
-            tool_use_id: { type: 'string' }, // Added for Phase 2
+            tool_use_id: { type: 'string' },
           },
           required: ['tool_name', 'input', 'tool_use_id'],
         },
@@ -69,7 +69,7 @@ export async function startClaudeApprovalsMCPServer() {
 
     if (request.params.name === 'request_permission') {
       const toolName: string | undefined = request.params.arguments?.tool_name
-      const toolUseId: string | undefined = request.params.arguments?.tool_use_id // Phase 2
+      const toolUseId: string | undefined = request.params.arguments?.tool_use_id
 
       if (!toolName) {
         logger.error('Invalid tool name in request_permission', request.params.arguments)
@@ -93,7 +93,7 @@ export async function startClaudeApprovalsMCPServer() {
         await daemonClient.connect()
         logger.debug('Connected to daemon')
 
-        // Create approval request with tool use ID (Phase 2)
+        // Create approval request with tool-use correlation metadata
         logger.debug('Creating approval request...', { sessionId, toolName, toolUseId })
         const createResponse = await daemonClient.createApproval(sessionId, toolName, input, toolUseId)
         const approvalId = createResponse.approval_id

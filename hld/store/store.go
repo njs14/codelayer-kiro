@@ -71,7 +71,7 @@ type UserSettings struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// Session represents a Claude Code session
+// Session represents a daemon-managed coding session.
 type Session struct {
 	ID                                  string
 	RunID                               string

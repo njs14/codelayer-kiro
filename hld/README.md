@@ -1,63 +1,58 @@
-# HumanLayer Daemon (hld)
+# HumanLayer Daemon (`hld`)
 
 ## Overview
 
-The HumanLayer Daemon (hld) provides a REST API and JSON-RPC interface for managing Claude Code sessions, approvals, and real-time event streaming.
+`hld` is the local daemon behind CodeLayer. It exposes both REST and JSON-RPC APIs for:
 
-## Configuration
+- launching and resuming coding-agent sessions,
+- brokering approvals,
+- streaming events to the WUI and CLI,
+- routing provider-specific behavior for Claude Code, Kiro, and proxy-backed providers.
 
-The daemon supports the following environment variables:
+## Key configuration
 
-- `HUMANLAYER_DAEMON_HTTP_PORT`: HTTP server port (default: 7777, set to 0 to disable)
-- `HUMANLAYER_DAEMON_HTTP_HOST`: HTTP server host (default: 127.0.0.1)
+The daemon reads its configuration from `~/.config/humanlayer/humanlayer.json`, environment variables, and build-time defaults. Common runtime knobs:
 
-### Disabling HTTP Server
+- `HUMANLAYER_DAEMON_HTTP_PORT`: HTTP server port (default: `7777`; set to `0` to disable)
+- `HUMANLAYER_DAEMON_HTTP_HOST`: HTTP bind host (default: `127.0.0.1`)
+- `HUMANLAYER_DAEMON_SOCKET`: Unix socket path for JSON-RPC clients
+- `CODELAYER_PROVIDER`: default backend provider (`claude` or `kiro`)
+- `HUMANLAYER_CLAUDE_PATH`: explicit Claude binary path
+- `KIRO_CLI_PATH`: explicit `kiro-cli` path
 
-To disable the HTTP server (for example, if you only want to use Unix sockets):
+To disable the HTTP server:
 
 ```bash
 export HUMANLAYER_DAEMON_HTTP_PORT=0
-hld start
+hld
 ```
 
-## End-to-End Testing
-
-The HLD includes comprehensive e2e tests for the REST API:
+## Development commands
 
 ```bash
-# Run all e2e tests
-make e2e-test
+# Build the daemon
+make -C hld build
 
-# Run with verbose output for debugging
-make e2e-test-verbose
+# Run daemon checks
+make -C hld check
 
-# Run with manual approval interaction
-make e2e-test-manual
-
-# Keep test artifacts for debugging
-KEEP_TEST_ARTIFACTS=true make e2e-test
+# Run daemon tests
+make -C hld test
 ```
 
-The e2e test suite:
-- Tests all 16 REST API endpoints
-- Validates SSE event streams
-- Exercises approval workflows (deny → retry → approve)
-- Tests session lifecycle operations
-- Verifies error handling
-- Runs in isolation with its own daemon instance
+## End-to-end API testing
 
-### Test Structure
+The daemon includes an end-to-end REST test suite in `hld/e2e/`:
 
-The e2e tests are located in `hld/e2e/` and consist of:
-- `test-rest-api.ts` - Main test script with 6 test phases
-- `test-utils.ts` - Utilities for test environment setup and assertions
-- `package.json` - Test dependencies
+```bash
+# Run all REST API e2e tests
+make -C hld e2e-test
 
-### Known Issues
+# Verbose mode
+make -C hld e2e-test-verbose
 
-During e2e test development, we discovered some potential upstream bugs:
-1. The list sessions API defaults to `leafOnly` which filters out parent sessions
-2. Error handling returns 500 instead of 404 for non-existent sessions
-3. Error handling for invalid requests might not be returning proper 400 errors
+# Manual approval mode
+make -C hld e2e-test-manual
+```
 
-These issues are documented in the test code with TODO comments.
+The e2e suite validates REST endpoints, SSE event streams, approval flows, session lifecycle operations, and provider-aware session behavior using an isolated daemon instance.

@@ -12,7 +12,7 @@ type Manager interface {
 	// Create a new approval
 	CreateApproval(ctx context.Context, runID, toolName string, toolInput json.RawMessage) (string, error)
 
-	// Create approval with tool_use_id (Phase 4)
+	// Create approval with tool_use_id metadata for tool-call correlation
 	CreateApprovalWithToolUseID(ctx context.Context, sessionID, toolName string, toolInput json.RawMessage, toolUseID string) (*store.Approval, error)
 
 	// Retrieval methods

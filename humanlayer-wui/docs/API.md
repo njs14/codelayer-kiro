@@ -24,7 +24,7 @@ Same as `useApprovals()` but with real-time updates (polls every 5 seconds).
 
 ### useSessions()
 
-List and launch Claude Code sessions.
+List and launch daemon-managed agent sessions.
 
 ```typescript
 const {
@@ -105,7 +105,8 @@ interface UnifiedApprovalRequest {
 ```typescript
 interface LaunchSessionRequest {
   query: string
-  model?: string // 'opus' | 'sonnet'
+  provider?: 'anthropic' | 'openrouter' | 'baseten' | 'kiro'
+  model?: string
   working_dir?: string
   max_turns?: number
   // ... see types.ts for all options

@@ -238,7 +238,7 @@ func (c *client) Health() error {
 	return nil
 }
 
-// LaunchSession launches a new Claude Code session
+// LaunchSession launches a new daemon-managed coding session
 func (c *client) LaunchSession(req rpc.LaunchSessionRequest) (*rpc.LaunchSessionResponse, error) {
 	var resp rpc.LaunchSessionResponse
 	if err := c.call("launchSession", req, &resp); err != nil {

@@ -17,7 +17,7 @@ export const KIRO_MODELS = [
   { value: 'deepseek-3.2', label: 'DeepSeek 3.2 (0.05x credits)', multiplier: 0.05 },
 ] as const
 
-// Claude Code models (existing)
+// Claude model shortcuts for the direct Claude provider
 export const CLAUDE_MODELS = [
   { value: 'sonnet', label: 'Sonnet (balanced)' },
   { value: 'opus', label: 'Opus (most capable)' },
