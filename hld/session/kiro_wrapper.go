@@ -31,21 +31,21 @@ var _ KiroACPClient = (*kirocli.Client)(nil)
 // KiroSession wraps a Kiro ACP session to satisfy the ClaudeSession interface.
 // It adapts Kiro's ACP protocol into the same event/result model the daemon expects.
 type KiroSession struct {
-	id              string // daemon session ID
-	kiroSessionID   string // Kiro's own session ID from session/new
-	client          KiroACPClient
-	kiroSess        *kirocli.Session // underlying kirocli session (for channel management)
-	events          chan claudecode.StreamEvent
-	done            chan struct{}
-	result          *claudecode.Result
-	promptDone      chan struct{} // closed when session/prompt returns
-	consumerWg      sync.WaitGroup // tracks consumeUpdates and consumeMetadata goroutines
+	id            string // daemon session ID
+	kiroSessionID string // Kiro's own session ID from session/new
+	client        KiroACPClient
+	kiroSess      *kirocli.Session // underlying kirocli session (for channel management)
+	events        chan claudecode.StreamEvent
+	done          chan struct{}
+	result        *claudecode.Result
+	promptDone    chan struct{}  // closed when session/prompt returns
+	consumerWg    sync.WaitGroup // tracks consumeUpdates and consumeMetadata goroutines
 
-	mu              sync.RWMutex
-	err             error
-	contextPct      float64
-	credits         float64
-	promptTimeout   time.Duration // timeout for session/prompt call
+	mu            sync.RWMutex
+	err           error
+	contextPct    float64
+	credits       float64
+	promptTimeout time.Duration // timeout for session/prompt call
 
 	// permissionHandler is called when Kiro requests permission.
 	// It receives the tool call title and options, returns the selected optionId.

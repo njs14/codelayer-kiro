@@ -656,14 +656,14 @@ func TestKiroModelNameConsistency(t *testing.T) {
 	// from Claude's own model IDs like "claude-opus-4-6".
 
 	expectedModels := map[string]bool{
-		"auto":              true,
-		"claude-opus4.6":    true,
-		"claude-sonnet4.6":  true,
-		"claude-sonnet4.5":  true,
-		"minimax-2.5":       true,
-		"minimax-2.1":       true,
-		"qwen3-coder-next":  true,
-		"deepseek-3.2":      true,
+		"auto":             true,
+		"claude-opus4.6":   true,
+		"claude-sonnet4.6": true,
+		"claude-sonnet4.5": true,
+		"minimax-2.5":      true,
+		"minimax-2.1":      true,
+		"qwen3-coder-next": true,
+		"deepseek-3.2":     true,
 	}
 
 	// This test serves as documentation. The actual validation happens

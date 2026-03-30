@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)] // objc crate macros use deprecated cfg(feature = "cargo-clippy")
 mod daemon;
 
 use daemon::{DaemonInfo, DaemonManager};
@@ -41,7 +42,6 @@ fn set_macos_window_background_color_rgb(window: &tauri::WebviewWindow, r: f64, 
 // Helper function to set macOS window appearance based on theme brightness
 #[cfg(target_os = "macos")]
 #[allow(deprecated)] // Using cocoa for compatibility with Tauri's ns_window() API
-#[allow(unexpected_cfgs)] // Clippy false positive with objc macros
 fn set_macos_window_appearance(window: &tauri::WebviewWindow, is_dark: bool) {
     #[link(name = "AppKit", kind = "framework")]
     extern "C" {

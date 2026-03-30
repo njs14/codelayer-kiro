@@ -32,14 +32,14 @@ type mockKiroACPClient struct {
 	permissionHandler kirocli.PermissionHandler
 
 	// Configurable responses
-	sessionNewID    string
-	sessionNewErr   error
-	sessionLoadErr  error
-	promptResult    *kirocli.PromptResult
-	promptErr       error
-	promptDelay     time.Duration
-	running         bool
-	stopErr         error
+	sessionNewID   string
+	sessionNewErr  error
+	sessionLoadErr error
+	promptResult   *kirocli.PromptResult
+	promptErr      error
+	promptDelay    time.Duration
+	running        bool
+	stopErr        error
 
 	// Tracking
 	promptCalls []string
